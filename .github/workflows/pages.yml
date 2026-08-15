@@ -1,0 +1,60 @@
+# Dựng và đưa Text3D lên GitHub Pages mỗi khi đẩy mã lên nhánh main.
+#
+# Cần bật một lần trên web: Settings → Pages → Source: "GitHub Actions".
+# Không bật thì workflow vẫn chạy phần kiểm tra, chỉ bước deploy là hỏng.
+
+name: Deploy to Pages
+
+on:
+  push:
+    branches: [main]
+  # Cho phép bấm chạy tay từ tab Actions.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Nếu đẩy liên tiếp nhiều lần thì bỏ qua các lượt cũ, chỉ chạy lượt mới nhất.
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Kiểm tra kiểu
+        run: npm run typecheck
+
+      # Bộ kiểm hình học đã bắt được lỗi thật (lỗ móc khóa bị lấp, thanh nối cắt
+      # qua lỗ), nên để nó gác cổng: hỏng thì không deploy.
+      - name: Kiểm tra hình học
+        run: npm run check
+
+      - name: Dựng bản phát hành
+        run: npm run build
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
