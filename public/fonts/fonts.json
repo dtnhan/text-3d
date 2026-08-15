@@ -1,0 +1,12 @@
+[
+  { "id": "bevietnampro-bold", "label": "Be Vietnam Pro Bold", "file": "BeVietnamPro-Bold.ttf" },
+  { "id": "bevietnampro", "label": "Be Vietnam Pro", "file": "BeVietnamPro-Regular.ttf" },
+  { "id": "sourcesans3-bold", "label": "Source Sans 3 Bold", "file": "SourceSans3-Bold.otf" },
+  { "id": "patrickhand", "label": "Patrick Hand — viết tay, nét dày", "file": "PatrickHand.ttf" },
+  { "id": "lobster", "label": "Lobster — viết tay, nét đậm", "file": "Lobster-Regular.ttf" },
+  { "id": "pacifico", "label": "Pacifico — viết tay, tròn trịa", "file": "Pacifico-Regular.ttf" },
+  { "id": "dancingscript", "label": "Dancing Script — viết tay, thanh thoát", "file": "DancingScript.ttf" },
+  { "id": "charm", "label": "Charm — viết tay, mảnh mai", "file": "Charm.ttf" },
+  { "id": "playball", "label": "Playball — viết tay, kiểu bảng hiệu", "file": "Playball.ttf" },
+  { "id": "greatvibes", "label": "Great Vibes — thư pháp, rất mảnh", "file": "GreatVibes.ttf" }
+]

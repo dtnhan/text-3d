@@ -1,0 +1,10 @@
+node_modules/
+dist/
+
+# Sản phẩm của `npm run check`
+.check-build/
+.check-output/
+
+.vite.log
+*.local
+.DS_Store

@@ -1,0 +1,10 @@
+# Chuẩn hoá xuống dòng: kho lưu LF, máy Windows tự đổi sang CRLF khi lấy về.
+# Không có dòng này thì lần commit đầu trên Windows sẽ báo "đổi toàn bộ file".
+* text=auto eol=lf
+
+# File nhị phân — không được đụng vào nội dung.
+*.ttf binary
+*.otf binary
+*.png binary
+*.jpg binary
+*.stl binary
