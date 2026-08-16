@@ -3,7 +3,7 @@
  * (1 unit Three.js = 1 mm), khớp trực tiếp với đơn vị của file STL.
  */
 
-export type BuildMode = 'text' | 'plate' | 'keychain' | 'deboss';
+export type BuildMode = 'text' | 'plate' | 'deboss';
 export type PlateShape = 'rect' | 'rounded' | 'oval' | 'outline';
 export type TextAlign = 'left' | 'center' | 'right';
 export type HolePosition = 'left' | 'right' | 'top';
@@ -113,6 +113,15 @@ export interface ModelParams {
   plateRadius: number;
 
   // --- Móc khóa ---
+  /**
+   * Khoét lỗ treo trên đế.
+   *
+   * Tách khỏi tên chế độ chứ không gộp vào. Trước đây "móc khóa" là một chế độ
+   * riêng, nên muốn móc khóa mà chữ khắc chìm thì không có cách nào diễn đạt —
+   * phải đẻ thêm chế độ thứ năm, rồi thứ sáu cho mọi tổ hợp về sau. Lỗ treo vốn
+   * độc lập với việc chữ nổi hay chữ chìm, nên để nó là một lựa chọn riêng.
+   */
+  keyring: boolean;
   /** Hình dạng lỗ treo. */
   holeShape: HoleShape;
   /**
@@ -179,6 +188,7 @@ export const DEFAULT_PARAMS: ModelParams = {
   plateThickness: 3,
   plateRadius: 3,
 
+  keyring: false,
   holeShape: 'circle',
   holeDiameter: 4,
   holePosition: 'left',

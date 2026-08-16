@@ -153,7 +153,7 @@ function outlinePlate(textShapes: THREE.Shape[], params: ModelParams): PlateShap
   const bars = connectIslands(plate, Math.max(params.plateMargin, MIN_PLATE_BAR));
   if (bars.length > 0) plate = unionShapes([...plate, ...bars]);
 
-  if (params.mode !== 'keychain') return { shapes: plate, holeCenter: null };
+  if (!params.keyring) return { shapes: plate, holeCenter: null };
   return attachRing(plate, params);
 }
 
@@ -234,7 +234,7 @@ function boxPlate(textBox: THREE.Box2, params: ModelParams): PlateShapes {
     new THREE.Vector2(textBox.max.x + margin, textBox.max.y + margin),
   );
 
-  const needsHole = params.mode === 'keychain';
+  const needsHole = params.keyring;
   const reach = needsHole ? holeReach(params) : 0;
 
   if (needsHole) {

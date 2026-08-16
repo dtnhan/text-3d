@@ -54,6 +54,7 @@ const BINDINGS: Binding[] = [
   { id: 'plateRadius', key: 'plateRadius', kind: 'number' },
   { id: 'plateColor', key: 'plateColor', kind: 'text' },
 
+  { id: 'keyring', key: 'keyring', kind: 'checkbox' },
   { id: 'holeShape', key: 'holeShape', kind: 'select' },
   { id: 'holeDiameter', key: 'holeDiameter', kind: 'number' },
   { id: 'holePosition', key: 'holePosition', kind: 'select' },
@@ -86,7 +87,8 @@ export function bindPanel(store: Store): void {
   const applyVisibility = (params: Readonly<ModelParams>) => {
     const usesPlate = params.mode !== 'text';
     toggle('[data-when="plate"]', usesPlate);
-    toggle('[data-when="keychain"]', params.mode === 'keychain');
+    toggle('[data-when="keyring"]', usesPlate);
+    toggle('[data-when="hole"]', usesPlate && params.keyring);
     toggle('[data-when="deboss"]', params.mode === 'deboss');
     toggle('[data-when="rounded"]', usesPlate && params.plateShape === 'rounded');
     toggle('[data-when="bevel"]', params.bevelEnabled);

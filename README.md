@@ -10,8 +10,9 @@ npm run dev      # mở http://localhost:5173
 
 ## Có gì
 
-- **Bốn kiểu model**: chữ nổi đơn thuần · chữ nổi trên đế · móc khóa có lỗ treo ·
-  chữ khắc chìm vào đế
+- **Ba kiểu chữ** — nổi đơn thuần · nổi trên đế · khắc chìm vào đế — nhân với
+  **lỗ móc khóa bật/tắt độc lập**, nên có cả *móc khóa chữ nổi* lẫn *móc khóa chữ
+  khắc chìm*
 - **Bốn kiểu đế**: chữ nhật · bo góc · oval · **bo sát chữ** (đường bao ôm theo
   dáng chữ như hình dán)
 - **Sáu hình lỗ móc khóa**: tròn · vuông · tam giác · lục giác · bán nguyệt ·
@@ -240,6 +241,18 @@ trường hợp đó ứng dụng báo lỗi kèm lời giải thích thay vì d
 
 ## Lỗ móc khóa
 
+**Lỗ treo là một lựa chọn độc lập, không phải một chế độ.** Bật ô *Khoét lỗ treo*
+là có, ghép được với chữ nổi lẫn chữ khắc chìm, với cả bốn kiểu đế và cả chữ dựng
+đứng.
+
+Trước đây "móc khóa" là một chế độ riêng ngang hàng với "khắc chìm", nên muốn móc
+khóa mà chữ khắc chìm thì không có cách nào diễn đạt — phải đẻ thêm chế độ thứ
+năm, rồi thứ sáu cho mọi tổ hợp về sau. Lỗ treo vốn độc lập với việc chữ nổi hay
+chữ chìm, nên tách ra là đúng chỗ của nó.
+
+Chữ khắc chìm là chỗ **lõm** chứ không phải khối đặc, nên nó không thể bịt mất lỗ
+— cảnh báo "lỗ bị nét chữ che" chỉ áp cho chữ nổi.
+
 Sáu hình dạng, và **"cỡ lỗ" luôn có nghĩa là đường kính vòng tròn lớn nhất lọt
 vừa lòng lỗ** — không phải bề ngang của hình.
 
@@ -330,19 +343,22 @@ chọn một trong hai cách:
 
 ```bash
 npm run typecheck
-npm run check     # 524 phép kiểm, ghi STL mẫu ra .check-output/
+npm run check     # 544 phép kiểm, ghi STL mẫu ra .check-output/
 npm run build
 ```
 
 `npm run check` chạy pipeline dựng hình **ngoài trình duyệt** — script được Vite
 đóng gói rồi mới chạy bằng Node, nên dùng đúng cơ chế phân giải module như bản
-chạy thật. Nó dựng 4 chế độ × 10 font, cộng các phép kiểm riêng cho từng tính
+chạy thật. Nó dựng 5 tổ hợp kiểu model × 10 font, cộng các phép kiểm riêng cho từng tính
 năng:
 
 - **lưới kín** — mọi cạnh thuộc đúng hai tam giác, sau khi đã hoá giải các điểm
   chữ T (xem `scripts/meshCheck.ts` giải thích vì sao phải phân biệt)
 - **đúng kích thước** — chữ cao đúng số mm đã đặt, độ dày khớp từng chế độ, đáy
   nằm đúng tại Z = 0
+- **móc khóa chữ khắc chìm** — lỗ thủng suốt qua cả tấm đáy lẫn tấm mặt, kéo lỗ
+  vào giữa vùng chữ vẫn thủng, ghép được với đế bo sát, và không báo nhầm cảnh
+  báo "lỗ bị chữ che"
 - **lỗ móc khóa xuyên suốt** — bắn tia thẳng đứng qua tâm lỗ, không được gặp
   vật liệu nào
 - **vòng khóa đúng cỡ lọt vừa** — với cả sáu hình lỗ và cả hai kiểu đế, dò 16

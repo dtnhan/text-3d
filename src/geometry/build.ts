@@ -171,8 +171,7 @@ function assemble(layout: TextLayout, params: ModelParams): Assembly {
       };
     }
 
-    case 'plate':
-    case 'keychain': {
+    case 'plate': {
       // Chữ dựng đứng thì phần chạm đế không còn là hình chữ nữa mà là bóng đổ
       // của nó — đế phải bám theo bóng đó, không phải theo dáng chữ.
       const ground = footprint(layout, params);

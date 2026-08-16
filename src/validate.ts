@@ -149,7 +149,8 @@ export function validate(result: BuildResult, params: ModelParams, font: Font): 
     }
   }
 
-  if (params.mode === 'keychain' && result.holeBlocked) {
+  // Chữ khắc chìm là chỗ lõm chứ không phải khối đặc, nên nó không thể bịt lỗ.
+  if (params.keyring && params.mode !== 'deboss' && result.holeBlocked) {
     issues.push({
       level: 'warning',
       message:
@@ -157,7 +158,7 @@ export function validate(result: BuildResult, params: ModelParams, font: Font): 
     });
   }
 
-  if (params.mode === 'keychain' && params.holeDiameter < 3) {
+  if (params.keyring && params.holeDiameter < 3) {
     issues.push({
       level: 'info',
       message: 'Lỗ nhỏ hơn 3 mm thường khó xỏ vòng khóa thông dụng.',

@@ -137,14 +137,24 @@ function expectedHeight(params: ModelParams): number {
     case 'text':
       return params.textDepth;
     case 'plate':
-    case 'keychain':
       return params.plateThickness + params.textDepth;
     case 'deboss':
       return params.plateThickness;
   }
 }
 
-const MODES: BuildMode[] = ['text', 'plate', 'keychain', 'deboss'];
+/**
+ * Các kiểu model đem đi quét. Lỗ treo giờ là lựa chọn độc lập với chế độ, nên
+ * danh sách này ghép cả hai — trong đó **móc khóa khắc chìm** là tổ hợp mà cấu
+ * trúc cũ (lỗ dính vào tên chế độ) không diễn đạt nổi.
+ */
+const MODES: Array<{ name: string; patch: Partial<ModelParams> }> = [
+  { name: 'text', patch: { mode: 'text' } },
+  { name: 'plate', patch: { mode: 'plate' } },
+  { name: 'keychain', patch: { mode: 'plate', keyring: true } },
+  { name: 'deboss', patch: { mode: 'deboss' } },
+  { name: 'deboss+keyring', patch: { mode: 'deboss', keyring: true } },
+];
 
 /** Font dùng cho các phép kiểm so sánh ở cuối, gán khi duyệt qua font đầu tiên. */
 let reference: Parameters<typeof buildModel>[0];
@@ -167,14 +177,14 @@ for (const file of fontFiles) {
   reference ??= loaded;
   console.log(`\n${file}`);
 
-  for (const mode of MODES) {
+  for (const { name: mode, patch } of MODES) {
     const params: ModelParams = {
       ...DEFAULT_PARAMS,
       text: SAMPLE,
-      mode,
       capHeight: CAP_HEIGHT,
       // Bật vát cạnh ở chế độ chữ nổi để đường dựng có vát cũng được kiểm.
       bevelEnabled: mode === 'text',
+      ...patch,
     };
 
     const result = buildModel(loaded, params);
@@ -312,7 +322,7 @@ for (const file of fontFiles) {
   }
 
   // --- Đế bo sát chữ ---
-  for (const mode of ['plate', 'keychain', 'deboss'] as BuildMode[]) {
+  for (const mode of ['plate', 'deboss'] as BuildMode[]) {
     const params: ModelParams = {
       ...DEFAULT_PARAMS,
       text: SAMPLE,
@@ -493,7 +503,8 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
         ...DEFAULT_PARAMS,
         text: SAMPLE,
         capHeight: CAP_HEIGHT,
-        mode: 'keychain',
+        mode: 'plate',
+    keyring: true,
         plateShape,
         holeShape,
         holeDiameter: 6,
@@ -543,7 +554,8 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
       ...DEFAULT_PARAMS,
       text: SAMPLE,
       capHeight: CAP_HEIGHT,
-      mode: 'keychain',
+      mode: 'plate',
+    keyring: true,
       plateShape: 'rect',
       holeShape,
       holeDiameter: 6,
@@ -551,6 +563,77 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
 
   check(of('triangle') > of('circle'), 'đế nới rộng ra cho lỗ tam giác', `${of('circle').toFixed(1)} → ${of('triangle').toFixed(1)} mm`);
   check(of('square') > of('circle'), 'đế nới rộng ra cho lỗ vuông');
+}
+
+// --- Móc khóa chữ khắc chìm ---
+//
+// Lỗ treo tách khỏi tên chế độ nên ghép được với mọi kiểu chữ. Tổ hợp "khắc chìm
+// + lỗ treo" là thứ cấu trúc cũ không diễn đạt nổi, nên kiểm riêng cho chắc.
+{
+  const base: ModelParams = {
+    ...DEFAULT_PARAMS,
+    text: SAMPLE,
+    capHeight: CAP_HEIGHT,
+    mode: 'deboss',
+    keyring: true,
+    plateShape: 'rect',
+    holeDiameter: 6,
+    holeMargin: 3,
+    debossDepth: 1,
+    plateThickness: 3,
+  };
+  const result = buildModel(reference, base);
+  const geometry = mergePieces(result.pieces);
+  const center = result.holeCenter!;
+
+  check(center !== null, 'khắc chìm có lỗ treo thì báo được vị trí lỗ');
+  check(checkMesh(geometry).openEdges === 0, 'lưới móc khóa khắc chìm vẫn kín');
+
+  // Lỗ phải thủng suốt qua cả tấm đáy lẫn tấm mặt, không chỉ thủng một lớp.
+  const probe = base.holeDiameter / 2 - 0.3;
+  let blocked = 0;
+  for (let i = 0; i < 16; i++) {
+    const angle = (i / 16) * Math.PI * 2;
+    if (countHits(geometry, center.x + Math.cos(angle) * probe, center.y + Math.sin(angle) * probe) !== 0) {
+      blocked++;
+    }
+  }
+  check(blocked === 0, 'lỗ thủng suốt qua đế khắc chìm', `${blocked}/16 chỗ bị lấp`);
+
+  // Và chữ vẫn được khắc lõm thật, không phải mất đi vì có lỗ.
+  const noKeyring = buildModel(reference, { ...base, keyring: false });
+  const deeper = buildModel(reference, { ...base, debossDepth: 2.5 });
+  check(
+    volume(mergePieces(deeper.pieces)) < volume(mergePieces(result.pieces)),
+    'khắc sâu hơn thì mất thêm vật liệu, dù có lỗ treo',
+  );
+  check(
+    result.size.x > noKeyring.size.x,
+    'bật lỗ treo thì đế nới rộng ra để chừa chỗ',
+    `${noKeyring.size.x.toFixed(1)} → ${result.size.x.toFixed(1)} mm`,
+  );
+
+  // Chữ khắc chìm là chỗ lõm nên không thể bịt lỗ — kéo lỗ vào giữa chữ vẫn thủng.
+  const under = buildModel(reference, { ...base, holeOffset: { x: 40, y: 0 } });
+  const moved = under.holeCenter!;
+  check(
+    countHits(mergePieces(under.pieces), moved.x, moved.y) === 0,
+    'kéo lỗ vào giữa vùng chữ khắc chìm thì lỗ vẫn thủng',
+  );
+  check(
+    !validate(under, { ...base, holeOffset: { x: 40, y: 0 } }, reference.font).some((i) =>
+      i.message.includes('nằm dưới nét chữ'),
+    ),
+    'không báo nhầm "lỗ bị chữ che" ở chế độ khắc chìm',
+  );
+
+  // Cùng kiểu đế bo sát chữ thì khuyên treo vẫn gắn đúng.
+  const hugging = buildModel(reference, { ...base, plateShape: 'outline' });
+  check(checkMesh(mergePieces(hugging.pieces)).openEdges === 0, 'đế bo sát + khắc chìm + lỗ treo vẫn kín');
+  check(
+    countHits(mergePieces(hugging.pieces), hugging.holeCenter!.x, hugging.holeCenter!.y) === 0,
+    'lỗ trên khuyên treo của đế bo sát khắc chìm vẫn thông',
+  );
 }
 
 // --- Chữ dựng vuông góc với đế ---
@@ -830,8 +913,8 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
   );
 
   // Xếp theo hình phải chạy được ở mọi chế độ model, kể cả khắc chìm.
-  for (const mode of MODES) {
-    const params: ModelParams = { ...base, mode, textShape: 'circle', shapeRadius: 32 };
+  for (const { name: mode, patch } of MODES) {
+    const params: ModelParams = { ...base, textShape: 'circle', shapeRadius: 32, ...patch };
     const result = buildModel(reference, params);
     check(
       checkMesh(mergePieces(result.pieces)).openEdges === 0,
@@ -887,13 +970,13 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
   check(traced[0].holes.length === 1, 'dò được cả lỗ bên trong ảnh');
 
   // Hình chèn phải đi trọn đường ống: được đùn, được đế bao, lưới vẫn kín.
-  for (const mode of MODES) {
+  for (const { name: mode, patch } of MODES) {
     const params: ModelParams = {
       ...DEFAULT_PARAMS,
       text: 'AB',
       capHeight: CAP_HEIGHT,
-      mode,
       graphics: [{ id: 'ring', name: 'khuyên', height: CAP_HEIGHT }],
+      ...patch,
     };
 
     const withGraphic = buildModel(reference, params, store);
@@ -969,7 +1052,8 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
         ...DEFAULT_PARAMS,
         text: SAMPLE,
         capHeight: CAP_HEIGHT,
-        mode: 'keychain',
+        mode: 'plate',
+    keyring: true,
         plateShape,
         holeOffset,
       };
@@ -999,7 +1083,8 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
     ...DEFAULT_PARAMS,
     text: SAMPLE,
     capHeight: CAP_HEIGHT,
-    mode: 'keychain',
+    mode: 'plate',
+    keyring: true,
     plateShape: 'rect',
     holeOffset: { x: 40, y: 0 },
   };
@@ -1016,7 +1101,7 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
 
 // --- Màu riêng cho đế và chữ ---
 {
-  for (const mode of ['plate', 'keychain', 'deboss'] as BuildMode[]) {
+  for (const mode of ['plate', 'deboss'] as BuildMode[]) {
     const params: ModelParams = { ...DEFAULT_PARAMS, text: SAMPLE, capHeight: CAP_HEIGHT, mode };
     const { pieces } = buildModel(reference, params);
 
@@ -1070,7 +1155,8 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
     ...DEFAULT_PARAMS,
     text: 'AÔB',
     capHeight: CAP_HEIGHT,
-    mode: 'keychain',
+    mode: 'plate',
+    keyring: true,
   };
   const store = new Store(base);
   const ids = buildModel(reference, base)
@@ -1143,7 +1229,8 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
     ...DEFAULT_PARAMS,
     text: SAMPLE,
     capHeight: CAP_HEIGHT,
-    mode: 'keychain',
+    mode: 'plate',
+    keyring: true,
     plateShape: 'rect',
     holePosition: 'left',
     holeDiameter: 5,
@@ -1209,7 +1296,8 @@ console.log('\nKiểm bằng phép so sánh thể tích');
     ...DEFAULT_PARAMS,
     text: SAMPLE,
     capHeight: CAP_HEIGHT,
-    mode: 'keychain',
+    mode: 'plate',
+    keyring: true,
     plateShape: 'rect',
     holePosition: 'left',
     holeDiameter: 5,
@@ -1236,7 +1324,8 @@ console.log('\nKiểm bằng phép so sánh thể tích');
     ...DEFAULT_PARAMS,
     text: SAMPLE,
     capHeight: CAP_HEIGHT,
-    mode: 'keychain',
+    mode: 'plate',
+    keyring: true,
     plateShape: 'outline',
     plateMargin: 4,
     holePosition: 'left',
