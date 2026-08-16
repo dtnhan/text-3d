@@ -99,6 +99,56 @@ export function validate(result: BuildResult, params: ModelParams, font: Font): 
     });
   }
 
+  // --- Chữ dựng đứng ---
+  const upright = params.textAngle > 0 && params.mode !== 'deboss';
+  if (upright) {
+    // Chữ dựng lên thì chỉ còn tì lên đế bằng bề dày đùn của nó. Tỉ lệ cao trên
+    // dày quá lớn là chữ mảnh như lưỡi dao, gãy ngay khi lấy khỏi bàn in.
+    const slenderness = params.capHeight / Math.max(params.textDepth, 0.01);
+    if (slenderness > 8) {
+      issues.push({
+        level: 'warning',
+        message: `Chữ dựng đứng cao gấp ${slenderness.toFixed(0)} lần bề dày, mảnh như lưỡi dao và rất dễ gãy. Hãy tăng "Độ dày chữ" lên khoảng ${fmt(params.capHeight / 8)} mm trở lên, hoặc giảm chiều cao chữ.`,
+      });
+    }
+
+    if (params.mode === 'text') {
+      issues.push({
+        level: 'warning',
+        message: 'Chữ dựng đứng mà không có đế thì mỗi chữ chỉ tì lên bàn in bằng một vệt mỏng — gần như chắc chắn đổ khi in. Hãy chuyển sang chế độ có đế.',
+      });
+    }
+
+    // Đuôi chữ `g`, `y`, `p` thòng xuống dưới đường chân nên chui vào trong đế.
+    // Đế đặc thì không sao, miễn là đủ dày để giấu hết.
+    const descender = result.layout.pieces.reduce((deepest, piece) => {
+      const bottom = new THREE.Box2().setFromPoints(piece.shape.getPoints(1)).min.y;
+      return Math.min(deepest, bottom - piece.baselineY);
+    }, 0);
+    const sunk = -descender * Math.sin((params.textAngle * Math.PI) / 180) + params.uprightSink;
+
+    if (params.mode !== 'text' && sunk > params.plateThickness) {
+      issues.push({
+        level: 'warning',
+        message: `Nét thòng của chữ (đuôi g, y, p…) ăn sâu ${fmt(sunk)} mm nên xuyên qua đáy đế dày ${fmt(params.plateThickness)} mm. Hãy tăng độ dày đế lên ${fmt(Math.ceil(sunk * 2) / 2)} mm, hoặc dùng chữ hoa.`,
+      });
+    }
+
+    if (params.text.includes('\n')) {
+      issues.push({
+        level: 'warning',
+        message: 'Chữ dựng đứng nhiều dòng thì chỉ dòng thấp nhất chạm được đế, các dòng trên treo lơ lửng. Hãy để một dòng.',
+      });
+    }
+
+    if (params.textAngle >= 45) {
+      issues.push({
+        level: 'info',
+        message: `Chữ nghiêng ${params.textAngle}° có nhiều chỗ hẫng (đỉnh chữ O, e, a…). Nhớ bật support trong phần mềm cắt lớp.`,
+      });
+    }
+  }
+
   if (params.mode === 'keychain' && result.holeBlocked) {
     issues.push({
       level: 'warning',

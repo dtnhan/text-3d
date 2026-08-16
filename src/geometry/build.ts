@@ -32,7 +32,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { layoutText, type TextLayout } from './layout';
 import { buildPlate } from './plate';
 import { differenceShapes, unionShapes } from './polygon2d';
-import { buildConnectors } from './connectors';
+import { connectDiacritics } from './connectors';
 import type { LoadedFont } from '../fonts/fontManager';
 import type { GraphicStore } from '../graphics/graphicStore';
 import type { ModelParams } from '../state';
@@ -155,28 +155,33 @@ interface Assembly {
 function assemble(layout: TextLayout, params: ModelParams): Assembly {
   switch (params.mode) {
     case 'text': {
-      // Thanh nối giữ dấu và các chữ rời lại với nhau, để in ra không rụng.
-      const bars = params.connectors
-        ? buildConnectors(layout.shapes, params.connectorWidth)
-        : [];
-
+      const bars = diacriticBars(layout, params);
       const pieces = textPieces(layout, params.textDepth, params, params.bevelEnabled);
-      if (bars.length > 0) {
-        // Thanh nối là phần kéo dài của nét chữ chứ không phải đế, nên ăn theo
-        // màu chữ.
-        pieces.push({
-          id: CONNECTOR_ID,
-          role: 'text',
-          geometry: extrude(bars, params.textDepth, params, params.bevelEnabled),
-        });
-      }
+      if (bars.length > 0) pieces.push(barPiece(bars, params));
 
-      return { pieces, parts: [...layout.shapes, ...bars], holeCenter: null };
+      // Không có đế thì chữ đứng thẳng trên mặt bàn.
+      if (tiltAngle(params) > 0) standOnBaseline(pieces, baselineHeight(layout, params), 0);
+      else dropOnto(pieces, 0);
+
+      const ground = footprint(layout, params);
+      return {
+        pieces,
+        parts: ground ? ground.shapes : [...layout.shapes, ...bars],
+        holeCenter: null,
+      };
     }
 
     case 'plate':
     case 'keychain': {
-      const plate = buildPlate(layout.shapes, layout.box, params);
+      // Chữ dựng đứng thì phần chạm đế không còn là hình chữ nữa mà là bóng đổ
+      // của nó — đế phải bám theo bóng đó, không phải theo dáng chữ.
+      const ground = footprint(layout, params);
+      const plate = buildPlate(
+        ground ? ground.shapes : layout.shapes,
+        ground ? ground.box : layout.box,
+        params,
+      );
+
       const pieces: Piece[] = [
         {
           id: PLATE_ID,
@@ -185,11 +190,26 @@ function assemble(layout: TextLayout, params: ModelParams): Assembly {
         },
       ];
 
-      // Cho chân chữ lún nhẹ vào đế để hai vỏ chắc chắn dính nhau khi cắt lớp.
-      for (const piece of textPieces(layout, params.textDepth, params, params.bevelEnabled)) {
-        piece.geometry.translate(0, 0, params.plateThickness - OVERLAP);
-        pieces.push(piece);
+      const letters = textPieces(layout, params.textDepth, params, params.bevelEnabled);
+
+      // Chữ dựng đứng thì mỗi cái dấu thành một mảnh đứng riêng trên đế, mảnh mai
+      // và dễ gãy; nối nó vào thân chữ thì cả hai đỡ nhau.
+      const bars = diacriticBars(layout, params);
+      if (bars.length > 0) letters.push(barPiece(bars, params));
+
+      if (tiltAngle(params) > 0) {
+        // Chữ đứng lún hẳn vào đế một đoạn, để chỗ chạm là một mặt thật chứ
+        // không phải một điểm — xem `uprightSink` trong state.ts.
+        standOnBaseline(
+          letters,
+          baselineHeight(layout, params),
+          params.plateThickness - Math.max(params.uprightSink, OVERLAP),
+        );
+      } else {
+        // Cho chân chữ lún nhẹ vào đế để hai vỏ chắc chắn dính nhau khi cắt lớp.
+        dropOnto(letters, params.plateThickness - OVERLAP);
       }
+      pieces.push(...letters);
 
       return {
         pieces,
@@ -202,6 +222,129 @@ function assemble(layout: TextLayout, params: ModelParams): Assembly {
     case 'deboss':
       return debossedPlate(layout, params);
   }
+}
+
+/**
+ * Thanh nối giữ dấu, nếu người dùng bật.
+ *
+ * Chỉ có nghĩa khi các nét thật sự đứng rời: chữ nổi đơn thuần thì dấu rơi khỏi
+ * bàn in, còn chữ dựng đứng thì mỗi dấu thành một mảnh mảnh mai đứng riêng trên
+ * đế. Chữ nằm phẳng trên đế thì đế đã giữ hết, thêm thanh chỉ tổ làm xấu.
+ */
+function diacriticBars(layout: TextLayout, params: ModelParams): THREE.Shape[] {
+  if (!params.connectors) return [];
+  if (params.mode !== 'text' && tiltAngle(params) === 0) return [];
+  return connectDiacritics(layout.pieces, params.connectorWidth);
+}
+
+/** Thanh nối là phần kéo dài của nét chữ chứ không phải đế, nên ăn theo màu chữ. */
+function barPiece(bars: THREE.Shape[], params: ModelParams): Piece {
+  const geometry = extrude(bars, params.textDepth, params, params.bevelEnabled);
+  tilt(geometry, params);
+  return { id: CONNECTOR_ID, role: 'text', geometry };
+}
+
+/** Góc dựng chữ tính bằng radian; 0 nghĩa là chữ nằm phẳng như bình thường. */
+function tiltAngle(params: ModelParams): number {
+  // Khắc chìm dựa vào hình chiếu của chữ xuống mặt đế; dựng chữ lên thì hình
+  // chiếu chỉ còn là mấy vệt chữ nhật, khắc ra không đọc được gì.
+  if (params.mode === 'deboss') return 0;
+  return (Math.max(0, Math.min(params.textAngle, 90)) * Math.PI) / 180;
+}
+
+/**
+ * Xoay khối chữ dựng lên quanh trục X.
+ *
+ * Xoay quanh gốc toạ độ nên mọi nét vẫn ăn khớp nhau. Ở góc 90°, chiều cao chữ
+ * (trục Y) trở thành chiều cao thật (trục Z), còn độ dày đùn (trục Z) trở thành
+ * bề dày chân chữ trên mặt đế (trục Y).
+ */
+function tilt(geometry: THREE.BufferGeometry, params: ModelParams): void {
+  const angle = tiltAngle(params);
+  if (angle > 0) geometry.rotateX(angle);
+}
+
+/**
+ * Hạ khối chữ đã dựng đứng xuống cho **đường chân chữ** nằm ở cao độ `z`.
+ *
+ * Phải căn theo đường chân chứ không theo đáy thấp nhất của khối. Căn theo đáy
+ * thì chỉ đúng cho mảnh thấp nhất, còn lại treo lơ lửng: chữ `g` thòng xuống kéo
+ * cả cụm rơi theo nên chữ `A` bên cạnh treo cách đế mấy milimét, và dấu huyền —
+ * vốn nằm hẳn trên cao — thì treo hơn một centimét.
+ *
+ * Phần thòng xuống dưới đường chân (đuôi `g`, chỗ tròn của `C`) chui vào trong
+ * đế; đế đặc nên không sao, chỉ cần đủ dày. Phần kiểm tra lo việc nhắc chuyện đó.
+ */
+function standOnBaseline(pieces: Piece[], baselineZ: number, z: number): void {
+  const shift = z - baselineZ;
+  for (const piece of pieces) {
+    piece.geometry.translate(0, 0, shift);
+    piece.geometry.computeBoundingBox();
+  }
+}
+
+/** Hạ cả nhóm xuống sao cho điểm thấp nhất của nhóm nằm đúng cao độ `z`. */
+function dropOnto(pieces: Piece[], z: number): void {
+  let lowest = Infinity;
+  for (const piece of pieces) {
+    piece.geometry.computeBoundingBox();
+    lowest = Math.min(lowest, piece.geometry.boundingBox!.min.z);
+  }
+  if (!Number.isFinite(lowest)) return;
+
+  for (const piece of pieces) piece.geometry.translate(0, 0, z - lowest);
+}
+
+/**
+ * Cao độ đường chân chữ sau khi dựng đứng.
+ *
+ * Điểm chân chữ nằm ở mặt sau khối chữ (toạ độ đùn bằng 0), nên xoay quanh trục
+ * ngang một góc θ đưa nó lên đúng `y·sinθ`. Nhiều dòng thì lấy dòng thấp nhất
+ * làm chuẩn — đó là dòng chạm đế.
+ */
+function baselineHeight(layout: TextLayout, params: ModelParams): number {
+  const sin = Math.sin(tiltAngle(params));
+  let lowest = Infinity;
+  for (const piece of layout.pieces) lowest = Math.min(lowest, piece.baselineY * sin);
+  return Number.isFinite(lowest) ? lowest : 0;
+}
+
+/**
+ * Bóng đổ của chữ dựng đứng xuống mặt đế. Trả về `null` khi chữ nằm phẳng —
+ * lúc đó chính hình chữ đã là bóng của nó rồi.
+ *
+ * Mỗi nét chữ dựng lên chiếm một vệt chữ nhật: bề ngang giữ nguyên, còn bề sâu
+ * là hình chiếu của khối chữ đã nghiêng. Ở góc 90° vệt đó đúng bằng độ dày đùn.
+ */
+function footprint(
+  layout: TextLayout,
+  params: ModelParams,
+): { shapes: THREE.Shape[]; box: THREE.Box2 } | null {
+  const angle = tiltAngle(params);
+  if (angle === 0) return null;
+
+  const cos = Math.cos(angle);
+  const sin = Math.sin(angle);
+  const depth = Math.max(params.textDepth, 0.05);
+
+  const shapes = layout.pieces.map((piece) => {
+    const b = new THREE.Box2().setFromPoints(piece.shape.getPoints(1));
+    const near = b.min.y * cos - depth * sin;
+    const far = b.max.y * cos;
+    return new THREE.Shape([
+      new THREE.Vector2(b.min.x, near),
+      new THREE.Vector2(b.max.x, near),
+      new THREE.Vector2(b.max.x, far),
+      new THREE.Vector2(b.min.x, far),
+    ]);
+  });
+
+  const box = new THREE.Box2().makeEmpty();
+  for (const shape of shapes) {
+    for (const point of shape.getPoints(1)) box.expandByPoint(point);
+  }
+
+  return { shapes, box };
 }
 
 /**
@@ -256,12 +399,11 @@ function textPieces(
   params: ModelParams,
   bevel: boolean,
 ): Piece[] {
-  return layout.pieces.map((piece) => ({
-    id: piece.id,
-    role: 'text' as const,
-    token: piece.token,
-    geometry: extrude([piece.shape], depth, params, bevel),
-  }));
+  return layout.pieces.map((piece) => {
+    const geometry = extrude([piece.shape], depth, params, bevel);
+    tilt(geometry, params);
+    return { id: piece.id, role: 'text' as const, token: piece.token, geometry };
+  });
 }
 
 function extrude(

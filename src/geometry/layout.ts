@@ -9,6 +9,10 @@
  * có thể cho ra nhiều nét: `ầ` gồm thân chữ, dấu mũ và dấu huyền — ba đường bao
  * tách rời, ba mã khác nhau. Nhờ vậy người dùng kéo được riêng cái dấu mũ.
  *
+ * Chữ có thể được xếp theo hình — vòng tròn, ô vuông, lượn sóng. Việc đó làm
+ * sau khi đã xếp thẳng: mỗi chữ được xoay và dời tới đúng chỗ trên đường, giữ
+ * nguyên dáng chữ. Xem `textPath.ts` giải thích vì sao không bẻ cong nét.
+ *
  * Hình chèn thêm (logo, icon) đi chung đúng đường ống này, mã dạng
  * `X<thứ tự>S<nét>`. Nhờ vậy chúng tự động được kéo thả, được đế bao, được khắc
  * chìm và được kiểm tra — không chỗ nào bên dưới cần biết mảnh này đến từ chữ
@@ -18,6 +22,7 @@
 import * as THREE from 'three';
 import type { Font, Glyph } from 'opentype.js';
 import { pathToShapes, type PathCommand } from './textShapes';
+import { TextPath } from './textPath';
 import type { LoadedFont } from '../fonts/fontManager';
 import type { GraphicStore } from '../graphics/graphicStore';
 import type { ModelParams } from '../state';
@@ -31,6 +36,14 @@ export interface TextPiece {
    */
   token: string;
   shape: THREE.Shape;
+  /**
+   * Cao độ đường chân chữ của mảnh này (mm).
+   *
+   * Không suy ra được từ hộp bao: chữ `g` thòng xuống dưới đường chân, chữ `C`
+   * tròn cũng thò xuống một chút, còn dấu huyền thì nằm hẳn trên cao. Muốn dựng
+   * chữ đứng cho đúng thì phải biết đường chân thật sự nằm đâu.
+   */
+  baselineY: number;
 }
 
 export interface TextLayout {
@@ -76,6 +89,16 @@ export function layoutText(
   const pieces: TextPiece[] = [];
   let glyphCount = 0;
 
+  // Lượt 2a: dựng chữ ở dạng thẳng, ghi lại tâm ngang của từng chữ. Tâm đó
+  // chính là chỗ đặt chữ lên đường khi xếp theo hình.
+  const flat: Array<{
+    id: string;
+    token: string;
+    shape: THREE.Shape;
+    centerX: number;
+    baseline: THREE.Vector2;
+  }> = [];
+
   measured.forEach((line, lineIndex) => {
     let penX = alignOffset(params.align, line.width, maxWidth);
     // getPath nhận toạ độ theo trục Y hướng xuống, còn commandsToContours lật
@@ -85,17 +108,43 @@ export function layoutText(
     line.items.forEach((item, glyphIndex) => {
       const commands = item.glyph.getPath(penX, penY, 1).commands as PathCommand[];
       const shapes = pathToShapes(commands, params.curveSegments, mmPerEm);
+      const centerX = (penX + item.advance / 2) * mmPerEm;
+
+      // Đường chân chữ của dòng này, trong cùng hệ toạ độ với hình chữ.
+      const baselineY = -penY * mmPerEm;
 
       shapes.forEach((shape, shapeIndex) => {
-        const id = `L${lineIndex}G${glyphIndex}S${shapeIndex}`;
-        applyOffset(shape, id, item.char, params);
-        pieces.push({ id, token: item.char, shape });
+        flat.push({
+          id: `L${lineIndex}G${glyphIndex}S${shapeIndex}`,
+          token: item.char,
+          shape,
+          centerX,
+          baseline: new THREE.Vector2(centerX, baselineY),
+        });
       });
 
       if (shapes.length > 0) glyphCount++;
       penX += item.advance;
     });
   });
+
+  // Lượt 2b: uốn theo hình, rồi mới áp dịch chuyển kéo tay.
+  //
+  // Thứ tự này quan trọng. Người dùng kéo chữ trong khung xem, tức là kéo trên
+  // hình **đã uốn**; nếu cộng dịch chuyển vào trước rồi mới uốn thì chính đoạn
+  // dịch chuyển đó cũng bị uốn theo, và chữ chạy lệch khỏi chỗ vừa thả.
+  const path = TextPath.create(params, maxWidth * mmPerEm);
+  if (path) warpToPath(flat, path);
+
+  for (const item of flat) {
+    applyOffset(item.shape, item.id, item.token, params);
+    pieces.push({
+      id: item.id,
+      token: item.token,
+      shape: item.shape,
+      baselineY: item.baseline.y,
+    });
+  }
 
   placeGraphics(pieces, params, graphics);
   if (pieces.length === 0) return EMPTY;
@@ -106,8 +155,51 @@ export function layoutText(
   const center = box.getCenter(new THREE.Vector2());
   translateShapes(shapes, -center.x, -center.y);
   box.translate(new THREE.Vector2(-center.x, -center.y));
+  for (const piece of pieces) piece.baselineY -= center.y;
 
   return { pieces, shapes, box, glyphCount };
+}
+
+/**
+ * Đặt từng chữ lên đường: xoay theo hướng đường tại chỗ đó rồi dời tới.
+ *
+ * Toạ độ trong chữ được đọc lại theo hệ của điểm đặt — `x` tính từ tâm chữ đo
+ * dọc đường, `y` giữ nguyên là chiều cao so với đường chân chữ. Nhờ vậy nhiều
+ * dòng cũng chạy được: dòng dưới có `y` âm hơn nên nằm phía trong vòng tròn,
+ * thành ra các dòng xếp thành những vòng đồng tâm.
+ */
+function warpToPath(
+  items: Array<{ shape: THREE.Shape; centerX: number; baseline: THREE.Vector2 }>,
+  path: TextPath,
+): void {
+  // Căn giữa khối chữ trước, để mốc giữa của đường rơi vào giữa chữ.
+  const flatBox = shapesBox(items.map((item) => item.shape));
+  const shift = flatBox.getCenter(new THREE.Vector2()).x;
+
+  for (const item of items) {
+    const anchor = item.centerX - shift;
+    const { point, tangent, normal } = path.frameAt(anchor);
+
+    const map = (points: THREE.Vector2[]) =>
+      points.map((p) => {
+        const along = p.x - shift - anchor;
+        return new THREE.Vector2(
+          point.x + tangent.x * along + normal.x * p.y,
+          point.y + tangent.y * along + normal.y * p.y,
+        );
+      });
+
+    const outer = map(item.shape.getPoints(1));
+    const holes = item.shape.holes.map((hole) => new THREE.Path(map(hole.getPoints(1))));
+
+    const shaped = new THREE.Shape(outer);
+    shaped.holes = holes;
+    item.shape = shaped;
+
+    // Điểm chân chữ đi qua đúng phép biến đổi ấy, nếu không thì sau khi uốn nó
+    // sẽ chỉ đường chân sai chỗ.
+    item.baseline = map([item.baseline])[0];
+  }
 }
 
 /**
@@ -146,7 +238,13 @@ function placeGraphics(
       const placed = scaleShape(shape, height, centerX, centerY);
       const id = `X${index}S${shapeIndex}`;
       applyOffset(placed, id, ref.id, params);
-      pieces.push({ id, token: ref.id, shape: placed });
+      // Hình chèn không có đường chân chữ; lấy mép dưới của nó làm chân.
+      pieces.push({
+        id,
+        token: ref.id,
+        shape: placed,
+        baselineY: centerY - height / 2,
+      });
     });
   }
 }
@@ -181,7 +279,12 @@ export function applyOffset(
 ): void {
   const offset = params.partOffsets[id];
   if (!offset || offset.token !== token) return;
-  translateShapes([shape], offset.dx, offset.dy);
+
+  // Chữ dựng đứng thì trục dọc của bố cục trở thành **chiều cao** sau khi xoay,
+  // nên cộng phần dọc vào đây sẽ nhấc chữ lơ lửng khỏi đế chứ không dời nó theo
+  // hướng người dùng kéo. Trục ngang thì không bị xoay đụng tới, vẫn đúng.
+  const upright = params.textAngle > 0 && params.mode !== 'deboss';
+  translateShapes([shape], offset.dx, upright ? 0 : offset.dy);
 }
 
 // ---------------------------------------------------------------------------

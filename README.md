@@ -18,8 +18,10 @@ npm run dev      # mở http://localhost:5173
   giọt nước
 - **Chèn logo / icon**: file SVG (kể cả icon vẽ bằng nét) và ảnh PNG/JPG được dò
   biên tự động
-- **Thanh nối giữ dấu** — tự nối dấu mũ, dấu ngã, chấm trên chữ `i` và các chữ
-  cái đứng riêng vào thành một mảnh liền, để in chữ nổi không bị rụng
+- **Xếp chữ theo hình**: thẳng hàng · vòng tròn / vòng cung · ô vuông · lượn sóng
+- **Dựng chữ vuông góc với đế** — kiểu biển tên để bàn, nghiêng được từ 0 tới 90°
+- **Thanh nối giữ dấu** — mỗi dấu (`^ ~ ˘ ˙`) một thanh nối vào chính chữ mang
+  nó, bề rộng chỉnh được; cố ý không nối các chữ rời với nhau
 - **Font tuỳ ý**: 10 font đóng gói sẵn (7 kiểu viết tay) đều đủ dấu tiếng Việt,
   cộng thêm nạp file `.ttf`/`.otf` bất kỳ từ máy (font riêng chỉ nằm trong bộ
   nhớ trình duyệt, không gửi đi đâu)
@@ -53,17 +55,24 @@ dùng quy ước ngược nhau**, nên cách đó sai với khoảng một nửa
 phần đặc, lẻ là lỗ. Đúng với mọi định dạng font. `npm run check` kiểm điều này
 trên cả font TrueType lẫn font CFF.
 
-### 3. Đế bo sát và thanh nối dùng chung một bộ máy
+### 3. Hai loại thanh nối, hai bài toán khác nhau
 
-Cả hai đều quy về hai phép toán trên đa giác phẳng, làm bằng `clipper-lib`:
+`geometry/connectors.ts` có hai hàm, dễ tưởng là một:
 
-- **Đế bo sát chữ** = hợp các hình chữ rồi **giãn** đường bao ra `plateMargin`.
-  Lề đủ lớn thì các chữ tự dính vào nhau; chưa dính thì `geometry/connectors.ts`
-  dựng cây bao trùm nhỏ nhất trên tập mảnh và nối bằng thanh — vì một tấm đế rời
-  làm mấy mảnh thì vô dụng. Khoảng trắng giữa hai từ hầu như luôn cần đến bước
-  này.
-- **Thanh nối giữ dấu** dùng đúng đoạn mã đó, chỉ khác là chạy trên hình chữ
-  thay vì hình đế.
+- **`connectIslands`** gộp mọi mảnh rời thành một khối liền theo cây bao trùm nhỏ
+  nhất. Dùng cho **đế bo sát chữ**: đế được dựng bằng cách hợp hình chữ rồi giãn
+  đường bao ra `plateMargin`; lề đủ lớn thì các chữ tự dính, chưa dính thì nối —
+  vì một tấm đế rời làm mấy mảnh thì vô dụng. Khoảng trắng giữa hai từ hầu như
+  luôn cần bước này.
+- **`connectDiacritics`** chỉ gắn **dấu vào chính chữ mang nó**, mỗi dấu đúng một
+  thanh. Không cần đoán bằng hình học: các nét của cùng một ký tự đã mang mã cùng
+  gốc từ lúc xếp chữ (`ầ` cho ra `L0G0S0/S1/S2`), nét lớn nhất là thân, còn lại
+  nối vào nó.
+
+`connectDiacritics` **cố ý không** nối các chữ rời với nhau. Nối hết thành khối
+liền thì phải thêm những thanh dài chạy ngang giữa các chữ, làm hỏng hẳn mặt chữ;
+mà mục đích thật sự chỉ là giữ mấy cái dấu khỏi rụng. Chữ rời vẫn đứng được khi
+có đế, còn khi không thì đã có cảnh báo riêng.
 
 Móc khóa với đế bo sát không có chỗ đặc nào để khoan, nên lỗ treo nằm trên một
 khuyên riêng nối vào thân đế (`plate.ts` → `attachRing`).
@@ -112,6 +121,7 @@ src/
 │   └── graphicStore.ts    kho hình đã phân tích, chuẩn hoá về chiều cao đơn vị
 ├── geometry/
 │   ├── textShapes.ts      ★ đường path glyph → THREE.Shape (thuật toán bao hàm)
+│   ├── textPath.ts        ★ xếp chữ theo vòng tròn / ô vuông / lượn sóng
 │   ├── layout.ts          nhiều dòng, kerning, giãn chữ, căn lề, quy đổi ra mm
 │   ├── polygon2d.ts       hợp / trừ / giãn đa giác phẳng (clipper-lib)
 │   ├── holeShapes.ts      sáu hình lỗ móc khóa, đo theo vòng tròn lọt vừa
@@ -127,6 +137,81 @@ src/
 ├── ui/panel.ts            nối control DOM vào kho tham số
 └── export/exporters.ts    xuất STL / OBJ
 ```
+
+## Dựng chữ vuông góc với đế
+
+Ô **Dựng đứng (độ)** trong nhóm *Khối chữ*: 0 là chữ nằm phẳng như bình thường,
+90 là chữ vuông góc với đế — kiểu biển tên để bàn. Giá trị ở giữa cho chữ nghiêng.
+
+### Chữ tiếp xúc với mặt đế
+
+Chữ đứng được căn theo **đường chân chữ**, không theo đáy thấp nhất của cả cụm.
+Căn theo đáy thì chỉ mảnh thấp nhất chạm đế, còn lại treo lơ lửng: đuôi chữ `g`
+kéo cả cụm rơi theo nên chữ `A` bên cạnh treo cách đế 5.7 mm, và dấu huyền treo
+tới 16.5 mm. Ngay cả `ABC` cũng lệch 0.26 mm vì chữ `C` tròn thò xuống dưới
+đường chân.
+
+Ô **Chữ lún vào đế (mm)** cho chữ cắm sâu thêm một đoạn. Chữ đáy phẳng như `B`
+vốn đã chạm cả một đoạn, nhưng chữ tròn như `O` chỉ chạm đúng một điểm — lún
+xuống thì chỗ tròn ấy cắt thành đoạn thẳng có bề rộng thật, đủ bám vào đế.
+
+Nét thòng (đuôi `g`, `y`, `p`) chui vào trong đế. Đế đặc nên không sao, miễn đủ
+dày — ứng dụng cảnh báo kèm con số cụ thể nếu nó xuyên qua đáy.
+
+Dựng chữ chỉ là **phép xoay quanh trục ngang**, nên nét chữ không hề méo — cùng
+lý lẽ với phần xếp chữ theo hình. Ở góc 90°, chiều cao chữ trở thành chiều cao
+thật của model, còn độ dày đùn trở thành bề dày chân chữ đứng trên đế.
+
+**Đế bám theo bóng đổ, không theo dáng chữ.** Chữ dựng lên thì phần chạm đế không
+còn là hình chữ nữa mà là vệt hình chiếu của nó. Mỗi nét chiếm một vệt chữ nhật:
+bề ngang giữ nguyên, bề sâu bằng hình chiếu của khối chữ đã nghiêng. Nếu vẫn lấy
+đế theo dáng chữ như cũ thì đế sẽ rộng bằng cả chiều cao chữ trong khi chữ chỉ tì
+lên một vệt mỏng. Đế bo sát chữ cũng ôm theo vệt đó.
+
+Ba cảnh báo riêng của chế độ này:
+
+- **Chữ quá mảnh** — cao gấp hơn 8 lần bề dày thì mảnh như lưỡi dao, gãy ngay khi
+  lấy khỏi bàn in. Ứng dụng nói luôn nên tăng độ dày lên bao nhiêu.
+- **Dựng đứng mà không có đế** — mỗi chữ chỉ tì lên bàn in bằng một vệt mỏng, gần
+  như chắc chắn đổ.
+- **Chỗ hẫng** — từ 45° trở lên, đỉnh chữ `O`, `e`, `a` thành chỗ hẫng, cần bật
+  support khi cắt lớp.
+
+Kéo tay ở chế độ này chỉ dời chữ theo **chiều ngang**. Trục dọc của bố cục sau khi
+xoay đã trở thành chiều cao, nên cộng phần dọc vào sẽ nhấc chữ lơ lửng khỏi đế
+chứ không dời nó theo hướng người dùng kéo.
+
+## Xếp chữ theo hình
+
+Bốn kiểu: **thẳng hàng · vòng tròn / vòng cung · ô vuông · lượn sóng**. Bán kính
+nhỏ thì chữ vòng kín, bán kính lớn thì thành vòng cung thoải — cùng một tham số.
+Ô vuông dùng chung ô nhập đó với nghĩa "nửa cạnh", và nhãn tự đổi theo để không
+nhầm. Ô **Lật hình** đưa chữ xuống nửa dưới vòng tròn (kiểu chữ vòng dưới của huy
+hiệu) hoặc đảo pha sóng.
+
+### Đặt cứng từng chữ, không bẻ cong nét
+
+Có hai lối uốn chữ theo đường. Lối thứ nhất kéo **từng điểm** của nét chữ theo
+đường cong — chữ cong theo, phần trong bị nén còn phần ngoài giãn ra. Lối thứ hai
+giữ nguyên hình chữ, chỉ **xoay và dời** nó tới đúng chỗ trên đường.
+
+Ứng dụng dùng lối thứ hai, vì hai lẽ. Một là đúng với cách nhà chữ vẫn làm: chữ
+vòng quanh huy hiệu bao giờ cũng giữ nguyên dáng, chỉ xoay. Hai là quan trọng hơn
+cho việc in — kéo từng điểm sẽ **bóp mỏng nét** ở phía trong đường cong, mà nét
+mỏng thì gãy khi in. `npm run check` đo bề rộng nét mảnh nhất trước và sau khi
+uốn: 3.494 mm ở cả dạng thẳng lẫn cả ba hình.
+
+Nhiều dòng thì xếp thành các **vòng đồng tâm**: dòng dưới có toạ độ dọc âm hơn
+nên rơi vào phía trong vòng tròn. Điều này tự có, không phải xử lý riêng.
+
+Ba hình đều quy về một **đường gấp khúc lấy mẫu dày** kèm bảng độ dài dồn. Vòng
+tròn tính được bằng lượng giác, nhưng lượn sóng thì độ dài cung không có công
+thức đóng, còn ô vuông thì có góc gãy — gộp về một lối tính thì đúng cho cả ba,
+và góc gãy của ô vuông tự rơi vào đúng chỗ đổi đoạn.
+
+Dịch chuyển kéo tay được áp **sau khi** uốn. Người dùng kéo chữ trên hình đã uốn,
+nên nếu cộng dịch chuyển vào trước rồi mới uốn thì chính đoạn dịch chuyển đó cũng
+bị uốn theo, và chữ chạy lệch khỏi chỗ vừa thả.
 
 ## Chèn logo, icon, hình
 
@@ -237,15 +322,15 @@ chấm trên chữ `i`. Ở chế độ chữ nổi đơn thuần, chúng in ra 
 và rơi khỏi bàn in. Ứng dụng phát hiện và cảnh báo việc này. Khi thấy cảnh báo,
 chọn một trong hai cách:
 
-- bật **Thanh nối giữ dấu** — thêm những thanh nhỏ nối dấu vào thân chữ và nối
-  các chữ với nhau, giữ nguyên dáng chữ nổi;
+- bật **Thanh nối giữ dấu** — thêm một thanh nhỏ nối mỗi cái dấu vào chính chữ
+  mang nó, bề rộng chỉnh được;
 - hoặc chuyển sang chế độ có đế (**Chữ nổi trên đế**, **Móc khóa**).
 
 ## Kiểm tra
 
 ```bash
 npm run typecheck
-npm run check     # 448 phép kiểm, ghi STL mẫu ra .check-output/
+npm run check     # 524 phép kiểm, ghi STL mẫu ra .check-output/
 npm run build
 ```
 
@@ -285,6 +370,19 @@ năng:
 - **lỗ trên khuyên treo của đế bo sát vẫn thông**, thanh nối không bịt mất lỗ
 - **có cảnh báo mảnh rời** với chuỗi tiếng Việt ở chế độ chữ nổi
 - **STL xuất ra khớp số tam giác** với geometry
+- **dựng chữ vuông góc** — chiều cao đổi từ "đế + độ dày" sang "đế + chiều cao
+  chữ", bề ngang không đổi, đế bám đúng bóng đổ, nét không méo, góc 0 giữ nguyên
+  hành vi cũ, khắc chìm bỏ qua góc dựng, và dùng chung được với xếp chữ theo hình
+- **chữ đứng chạm đế** — chữ đáy phẳng nằm đúng cao độ đã lún, **không chữ nào
+  treo lơ lửng**, và nét thòng của chữ bên cạnh không kéo chữ khác lên
+- **thanh nối giữ dấu** — nói theo cấu trúc chứ không theo con số, nên đúng với
+  cả font vẽ dấu rời lẫn font vẽ dấu dính: sau khi nối thì không ký tự nào còn bị
+  tách ở nhiều mảnh, số thanh không vượt quá số dấu rời, các chữ vẫn để rời, và
+  bề rộng thanh chỉnh được
+- **xếp chữ theo hình** — mốc giữa rơi đúng đỉnh vòng tròn, chu vi đúng công
+  thức, không mất nét nào khi uốn, **bề rộng nét không đổi** (bằng chứng chữ chỉ
+  bị xoay chứ không bị bóp méo), lật hình thì chiều cong đảo lại, kéo tay trên
+  chữ đã uốn dời đúng khoảng cách, và cả bốn chế độ model đều cho lưới kín
 - **hình chèn** — SVG tô đặc nhận đúng lỗ bên trong, SVG vẽ nét được nới thành
   khối, ảnh raster dò được cả lỗ, hình cao đúng số mm đã đặt, và ở cả bốn chế độ
   thì hình làm model rộng ra mà lưới vẫn kín

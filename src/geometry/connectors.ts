@@ -15,6 +15,7 @@
 
 import * as THREE from 'three';
 import { findIslands, type Island } from './islands';
+import type { TextPiece } from './layout';
 
 /**
  * Số điểm tối đa lấy mẫu trên mỗi mảnh khi tìm đoạn ngắn nhất. Đường bao chữ có
@@ -24,14 +25,74 @@ import { findIslands, type Island } from './islands';
 const SAMPLE_LIMIT = 96;
 
 /**
- * Dựng các thanh nối cho một tập shape. Trả về mảng rỗng nếu mọi thứ vốn đã
- * dính liền nhau.
+ * Nối **dấu vào chính chữ mang nó**, mỗi dấu đúng một thanh.
+ *
+ * Các nét của cùng một ký tự đã được đánh mã cùng gốc từ lúc xếp chữ, nên không
+ * phải đoán bằng hình học: `ầ` cho ra `L0G0S0`, `L0G0S1`, `L0G0S2` — thân chữ và
+ * hai cái dấu. Nét lớn nhất trong nhóm là thân, mọi nét còn lại nối vào nó.
+ *
+ * Cố ý **không** nối các chữ rời với nhau. Nối hết thành một khối liền thì phải
+ * thêm những thanh dài chạy ngang giữa các chữ, làm hỏng hẳn mặt chữ; mà mục
+ * đích thật sự chỉ là giữ cho mấy cái dấu khỏi rụng. Chữ rời nhau vẫn đứng được
+ * khi có đế, còn khi không có đế thì phần kiểm tra đã cảnh báo riêng.
  */
-export function buildConnectors(shapes: THREE.Shape[], width: number): THREE.Shape[] {
+export function connectDiacritics(pieces: TextPiece[], width: number): THREE.Shape[] {
+  if (width <= 0) return [];
+
+  // Gom theo ký tự: bỏ phần đuôi chỉ số nét khỏi mã định danh.
+  const glyphs = new Map<string, TextPiece[]>();
+  for (const piece of pieces) {
+    // Hình chèn thêm không có dấu; đây là việc của chữ.
+    if (!piece.id.startsWith('L')) continue;
+    const key = piece.id.replace(/S\d+$/, '');
+    const group = glyphs.get(key);
+    if (group) group.push(piece);
+    else glyphs.set(key, [piece]);
+  }
+
+  const bars: THREE.Shape[] = [];
+
+  for (const group of glyphs.values()) {
+    if (group.length < 2) continue;
+
+    const parts = group
+      .map((piece) => {
+        const points = piece.shape.getPoints(1);
+        return { points, box: new THREE.Box2().setFromPoints(points), area: Math.abs(areaOf(points)) };
+      })
+      .sort((a, b) => b.area - a.area);
+
+    const body = parts[0];
+    for (const mark of parts.slice(1)) {
+      // Dấu đã dính sẵn vào thân thì thôi — nhiều font vẽ liền.
+      if (body.box.intersectsBox(mark.box)) continue;
+
+      const [from, to] = closestPair(samplePoints(body.points), samplePoints(mark.points));
+      const bar = makeBar(from, to, width);
+      if (bar) bars.push(bar);
+    }
+  }
+
+  return bars;
+}
+
+function areaOf(points: THREE.Vector2[]): number {
+  let sum = 0;
+  for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+    sum += (points[j].x - points[i].x) * (points[j].y + points[i].y);
+  }
+  return sum / 2;
+}
+
+/**
+ * Dựng các thanh nối để gộp mọi mảnh rời thành một khối liền, theo cây bao trùm
+ * nhỏ nhất. Dùng cho đế bo sát chữ, nơi một tấm đế rời làm mấy mảnh thì vô dụng.
+ */
+export function connectIslands(shapes: THREE.Shape[], width: number): THREE.Shape[] {
   const islands = findIslands(shapes);
   if (islands.length <= 1 || width <= 0) return [];
 
-  const samples = islands.map(sample);
+  const samples = islands.map(sampleIsland);
   const bars: THREE.Shape[] = [];
 
   // Cây bao trùm nhỏ nhất theo thuật toán Prim: mỗi vòng lặp kéo thêm mảnh gần
@@ -108,8 +169,11 @@ export function closestPair(
 }
 
 /** Lấy thưa các điểm của một mảnh, giữ đều khắp đường bao. */
-function sample(island: Island): THREE.Vector2[] {
-  const { points } = island;
+function sampleIsland(island: Island): THREE.Vector2[] {
+  return samplePoints(island.points);
+}
+
+function samplePoints(points: THREE.Vector2[]): THREE.Vector2[] {
   if (points.length <= SAMPLE_LIMIT) return points;
 
   const stride = Math.ceil(points.length / SAMPLE_LIMIT);

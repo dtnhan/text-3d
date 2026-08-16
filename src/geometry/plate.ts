@@ -14,7 +14,7 @@
 
 import * as THREE from 'three';
 import { differenceShapes, offsetShapes, unionShapes } from './polygon2d';
-import { buildConnectors, closestPair, makeBar } from './connectors';
+import { connectIslands, closestPair, makeBar } from './connectors';
 import { holeOutline } from './holeShapes';
 import { pointInPolygon } from './textShapes';
 import type { HolePosition, ModelParams, PlateShape } from '../state';
@@ -150,7 +150,7 @@ function outlinePlate(textShapes: THREE.Shape[], params: ModelParams): PlateShap
   let plate = offsetShapes(merged, Math.max(params.plateMargin, 0.01));
 
   // Bề rộng thanh nối lấy theo lề, để nó trông cùng một hệ với phần bo ra.
-  const bars = buildConnectors(plate, Math.max(params.plateMargin, MIN_PLATE_BAR));
+  const bars = connectIslands(plate, Math.max(params.plateMargin, MIN_PLATE_BAR));
   if (bars.length > 0) plate = unionShapes([...plate, ...bars]);
 
   if (params.mode !== 'keychain') return { shapes: plate, holeCenter: null };

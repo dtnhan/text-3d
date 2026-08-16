@@ -23,8 +23,22 @@ const BINDINGS: Binding[] = [
   { id: 'letterSpacing', key: 'letterSpacing', kind: 'number' },
   { id: 'lineHeight', key: 'lineHeight', kind: 'number' },
 
+  { id: 'textShape', key: 'textShape', kind: 'select' },
+  { id: 'shapeRadius', key: 'shapeRadius', kind: 'number' },
+  { id: 'waveAmplitude', key: 'waveAmplitude', kind: 'number' },
+  { id: 'waveLength', key: 'waveLength', kind: 'number' },
+  { id: 'shapeFlip', key: 'shapeFlip', kind: 'checkbox' },
+
+  { id: 'textShape', key: 'textShape', kind: 'select' },
+  { id: 'shapeRadius', key: 'shapeRadius', kind: 'number' },
+  { id: 'waveAmplitude', key: 'waveAmplitude', kind: 'number' },
+  { id: 'waveLength', key: 'waveLength', kind: 'number' },
+  { id: 'shapeFlip', key: 'shapeFlip', kind: 'checkbox' },
+
   { id: 'capHeight', key: 'capHeight', kind: 'number' },
   { id: 'textDepth', key: 'textDepth', kind: 'number' },
+  { id: 'textAngle', key: 'textAngle', kind: 'number' },
+  { id: 'uprightSink', key: 'uprightSink', kind: 'number' },
   { id: 'bevelEnabled', key: 'bevelEnabled', kind: 'checkbox' },
   { id: 'bevelSize', key: 'bevelSize', kind: 'number' },
   { id: 'textColor', key: 'textColor', kind: 'text' },
@@ -77,8 +91,30 @@ export function bindPanel(store: Store): void {
     toggle('[data-when="rounded"]', usesPlate && params.plateShape === 'rounded');
     toggle('[data-when="bevel"]', params.bevelEnabled);
     // Thanh nối chỉ có nghĩa ở chế độ chữ nổi — các chế độ khác đã có đế giữ.
-    toggle('[data-when="textmode"]', !usesPlate);
-    toggle('[data-when="connectors"]', !usesPlate && params.connectors);
+    // Thanh nối giữ dấu có nghĩa ở hai chỗ: chữ nổi đơn thuần (dấu rụng khỏi bàn
+    // in) và chữ dựng đứng (mỗi dấu thành một mảnh mảnh mai đứng riêng).
+    const needsBars = params.mode === 'text' || (params.textAngle > 0 && params.mode !== 'deboss');
+    toggle('[data-when="textmode"]', needsBars);
+    toggle('[data-when="connectors"]', needsBars && params.connectors);
+
+    const shaped = params.textShape !== 'straight';
+    toggle('[data-when="shape-any"]', shaped);
+    toggle('[data-when="shape-radius"]', params.textShape === 'circle' || params.textShape === 'square');
+    toggle('[data-when="shape-wave"]', params.textShape === 'wave');
+
+    // Khắc chìm không dựng chữ được, nên giấu hẳn ô nhập đi thay vì để người
+    // dùng chỉnh một con số không có tác dụng gì.
+    const tiltable = params.mode !== 'deboss';
+    toggle('[data-when="tiltable"]', tiltable);
+    toggle('[data-when="upright"]', tiltable && params.textAngle > 0);
+
+    // Cùng một ô nhập mang hai nghĩa khác nhau, nên nhãn phải nói rõ đang là
+    // nghĩa nào — không thì người dùng nhập bán kính mà ra ô vuông to gấp đôi.
+    const radiusLabel = document.getElementById('shapeRadiusLabel');
+    if (radiusLabel) {
+      radiusLabel.innerHTML =
+        params.textShape === 'square' ? 'Nửa cạnh <em>(mm)</em>' : 'Bán kính <em>(mm)</em>';
+    }
   };
 
   applyVisibility(store.get());

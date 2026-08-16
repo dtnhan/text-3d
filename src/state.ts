@@ -11,6 +11,9 @@ export type HolePosition = 'left' | 'right' | 'top';
 import type { HoleShape } from './geometry/holeShapes';
 export type { HoleShape };
 
+import type { TextShape } from './geometry/textPath';
+export type { TextShape };
+
 /**
  * Một hình chèn thêm — logo, icon, hình trang trí.
  *
@@ -49,6 +52,17 @@ export interface ModelParams {
   lineHeight: number;
   align: TextAlign;
 
+  // --- Xếp chữ theo hình ---
+  textShape: TextShape;
+  /** Bán kính vòng tròn, hoặc nửa cạnh ô vuông (mm). */
+  shapeRadius: number;
+  /** Biên độ sóng (mm). */
+  waveAmplitude: number;
+  /** Bước sóng (mm). */
+  waveLength: number;
+  /** Lật hình: chữ xuống nửa dưới vòng tròn, hoặc đảo pha sóng. */
+  shapeFlip: boolean;
+
   // --- Khối chữ ---
   /** Chiều cao chữ HOA (mm) — quy chiếu vật lý cho mọi dòng. */
   capHeight: number;
@@ -57,6 +71,23 @@ export interface ModelParams {
   bevelEnabled: boolean;
   /** Kích thước vát cạnh (mm), áp cho cả bề rộng lẫn chiều cao vát. */
   bevelSize: number;
+
+  /**
+   * Góc dựng chữ so với mặt đế (độ). 0 là chữ nằm phẳng như bình thường, 90 là
+   * chữ đứng vuông góc với đế — kiểu biển tên để bàn. Chế độ khắc chìm bỏ qua
+   * tham số này, vì khắc một hình chiếu thì chẳng ra chữ gì.
+   */
+  textAngle: number;
+
+  /**
+   * Chữ dựng đứng lún vào đế bao nhiêu (mm).
+   *
+   * Chữ đứng chỉ chạm đế bằng mép dưới của nét. Chữ có đáy phẳng như `B` thì
+   * chạm cả một đoạn, nhưng chữ tròn như `O` chỉ chạm đúng một điểm — in ra là
+   * rụng. Cho lún xuống một chút thì chỗ tròn ấy cắt thành một đoạn thẳng có bề
+   * rộng thật, đủ để bám vào đế.
+   */
+  uprightSink: number;
 
   /**
    * Thêm thanh nối giữ các mảnh rời của chữ (dấu mũ, dấu ngã, chấm trên chữ i,
@@ -125,10 +156,18 @@ export const DEFAULT_PARAMS: ModelParams = {
   lineHeight: 1.4,
   align: 'center',
 
+  textShape: 'straight',
+  shapeRadius: 40,
+  waveAmplitude: 8,
+  waveLength: 60,
+  shapeFlip: false,
+
   capHeight: 20,
   textDepth: 4,
   bevelEnabled: false,
   bevelSize: 0.4,
+  textAngle: 0,
+  uprightSink: 1,
 
   connectors: false,
   connectorWidth: 2,

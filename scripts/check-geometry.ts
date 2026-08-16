@@ -32,10 +32,15 @@ import {
   type PlateShape,
 } from '../src/state';
 import { holeOutline } from '../src/geometry/holeShapes';
+import { TextPath } from '../src/geometry/textPath';
+import { estimateMinStroke } from '../src/validate';
+import type { TextShape } from '../src/state';
 import { GraphicStore } from '../src/graphics/graphicStore';
 import { traceBitmap } from '../src/graphics/traceBitmap';
 import { checkMesh } from './meshCheck';
 import { Selection } from '../src/viewer/interaction';
+import { connectDiacritics } from '../src/geometry/connectors';
+import { findIslands } from '../src/geometry/islands';
 
 // SVGLoader phân tích file bằng DOMParser của trình duyệt, mà Node không có. Vá
 // bằng một DOM tối giản. Hai chỗ nó đòi hơn thế:
@@ -223,23 +228,86 @@ for (const file of fontFiles) {
   }
 
   // --- Thanh nối giữ dấu ---
-  // Chuỗi mẫu có dấu huyền, dấu ngã và dấu mũ, nên chắc chắn tách nhiều mảnh.
+  //
+  // Thanh nối chỉ gắn dấu vào chính chữ mang nó, mỗi dấu đúng một thanh, và **cố
+  // ý không** nối các chữ rời với nhau: nối hết thành khối liền thì phải thêm
+  // những thanh dài chạy ngang giữa các chữ, làm hỏng hẳn mặt chữ.
+  //
+  // Phép kiểm nói theo cấu trúc chứ không theo con số: font nào vẽ dấu dính sẵn
+  // vào thân chữ thì số nét khác hẳn font vẽ rời, mà cả hai đều đúng.
   {
-    const base: ModelParams = { ...DEFAULT_PARAMS, text: SAMPLE, capHeight: CAP_HEIGHT, mode: 'text' };
+    const base: ModelParams = {
+      ...DEFAULT_PARAMS,
+      text: SAMPLE,
+      capHeight: CAP_HEIGHT,
+      mode: 'text',
+    };
+    const joinedParams: ModelParams = { ...base, connectors: true, connectorWidth: 2 };
+
     const loose = buildModel(loaded, base);
-    const joined = buildModel(loaded, { ...base, connectors: true, connectorWidth: 2 });
+    const joined = buildModel(loaded, joinedParams);
 
-    const before = countIslands(loose.parts);
-    const after = countIslands(joined.parts);
+    /** Có ký tự nào bị tách ra nằm ở nhiều mảnh khác nhau không? */
+    const splitGlyphs = (result: typeof loose): number => {
+      const islands = findIslands(result.parts);
+      const islandOf = new Map<number, number>();
+      islands.forEach((island, index) => {
+        for (const i of island.indices) islandOf.set(i, index);
+      });
 
-    check(before > 1, 'chữ tiếng Việt vốn tách nhiều mảnh', `${before} mảnh`);
-    check(after === 1, 'thanh nối gộp về một mảnh liền', `${before} mảnh → ${after} mảnh`);
-    check(checkMesh(mergePieces(joined.pieces)).openEdges === 0, 'lưới có thanh nối vẫn kín');
+      const byGlyph = new Map<string, Set<number>>();
+      result.layout.pieces.forEach((piece, i) => {
+        if (!piece.id.startsWith('L')) return;
+        const key = piece.id.replace(/S\d+$/, '');
+        const seen = byGlyph.get(key) ?? new Set<number>();
+        seen.add(islandOf.get(i) ?? -1);
+        byGlyph.set(key, seen);
+      });
+
+      return [...byGlyph.values()].filter((seen) => seen.size > 1).length;
+    };
+
+    const bars = connectDiacritics(loose.layout.pieces, 2);
+    const glyphs = new Set(
+      loose.layout.pieces.filter((p) => p.id.startsWith('L')).map((p) => p.id.replace(/S\d+$/, '')),
+    ).size;
+    const strokes = loose.layout.pieces.filter((p) => p.id.startsWith('L')).length;
+
+    check(splitGlyphs(loose) > 0, 'font này vẽ dấu tách rời khỏi thân chữ', `${strokes} nét / ${glyphs} ký tự`);
+    check(splitGlyphs(joined) === 0, 'nối xong mọi dấu đều dính vào chữ của nó');
+
+    // Số thanh không vượt quá số dấu rời — cộng với mệnh đề trên thì đúng là mỗi
+    // dấu một thanh, không hơn.
     check(
-      !validate(joined, { ...base, connectors: true, connectorWidth: 2 }, font).some((i) =>
-        i.message.includes('mảnh rời'),
-      ),
-      'hết cảnh báo mảnh rời sau khi nối',
+      bars.length > 0 && bars.length <= strokes - glyphs,
+      'mỗi dấu đúng một thanh, không thừa',
+      `${bars.length} thanh cho ${strokes - glyphs} dấu rời`,
+    );
+
+    check(checkMesh(mergePieces(joined.pieces)).openEdges === 0, 'lưới có thanh nối vẫn kín');
+
+    // Các chữ vẫn rời nhau, và cảnh báo mảnh rời vẫn phải nói đúng điều đó.
+    check(countIslands(joined.parts) > 1, 'các chữ rời vẫn để rời, không bị nối lại');
+    check(
+      validate(joined, joinedParams, font).some((i) => i.message.includes('mảnh rời')),
+      'vẫn cảnh báo chữ rời sau khi nối dấu',
+    );
+
+    // Bề rộng thanh chỉnh được, và chỉnh thì thấy khác thật.
+    const areaOf = (shapes: typeof bars) =>
+      shapes.reduce((sum, shape) => {
+        const pts = shape.getPoints(1);
+        let a = 0;
+        for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+          a += (pts[j].x - pts[i].x) * (pts[j].y + pts[i].y);
+        }
+        return sum + Math.abs(a / 2);
+      }, 0);
+    const thick = connectDiacritics(loose.layout.pieces, 6);
+    check(
+      thick.length === bars.length && areaOf(thick) > areaOf(bars) * 2,
+      'bề rộng thanh nối chỉnh được',
+      `${areaOf(bars).toFixed(0)} → ${areaOf(thick).toFixed(0)} mm²`,
     );
   }
 
@@ -483,6 +551,293 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
 
   check(of('triangle') > of('circle'), 'đế nới rộng ra cho lỗ tam giác', `${of('circle').toFixed(1)} → ${of('triangle').toFixed(1)} mm`);
   check(of('square') > of('circle'), 'đế nới rộng ra cho lỗ vuông');
+}
+
+// --- Chữ dựng vuông góc với đế ---
+{
+  const base: ModelParams = {
+    ...DEFAULT_PARAMS,
+    text: 'ABC',
+    capHeight: CAP_HEIGHT,
+    textDepth: 5,
+    plateThickness: 3,
+    plateMargin: 4,
+    mode: 'plate',
+    plateShape: 'rect',
+  };
+  const flat = buildModel(reference, base);
+  const upright = buildModel(reference, { ...base, textAngle: 90 });
+
+  check(checkMesh(mergePieces(upright.pieces)).openEdges === 0, 'lưới chữ dựng đứng vẫn kín');
+
+  // Nằm phẳng: cao = đế + độ dày chữ. Dựng đứng: cao = đế + chiều cao chữ.
+  check(
+    Math.abs(flat.size.z - (base.plateThickness + base.textDepth)) < TOLERANCE,
+    'nằm phẳng thì chiều cao là đế cộng độ dày chữ',
+    `${flat.size.z.toFixed(2)} mm`,
+  );
+  // Chữ lún vào đế `uprightSink` mm nên đỉnh chữ thấp đi đúng chừng ấy.
+  const expectedTop = base.plateThickness - DEFAULT_PARAMS.uprightSink + CAP_HEIGHT;
+  check(
+    upright.size.z >= expectedTop - TOLERANCE,
+    'dựng đứng thì chiều cao là đế cộng chiều cao chữ',
+    `${flat.size.z.toFixed(1)} → ${upright.size.z.toFixed(1)} mm, tối thiểu ${expectedTop.toFixed(1)}`,
+  );
+
+  // Bề ngang không đổi vì trục xoay chính là trục ngang; bề sâu thì co lại còn
+  // đúng độ dày chữ cộng lề đế hai bên.
+  check(
+    Math.abs(upright.size.x - flat.size.x) < TOLERANCE,
+    'bề ngang không đổi khi dựng chữ',
+    `${flat.size.x.toFixed(2)} → ${upright.size.x.toFixed(2)} mm`,
+  );
+  check(
+    Math.abs(upright.size.y - (base.textDepth + base.plateMargin * 2)) < TOLERANCE,
+    'đế bám theo bóng đổ của chữ, không theo dáng chữ',
+    `sâu ${upright.size.y.toFixed(2)} mm, mong đợi ${(base.textDepth + base.plateMargin * 2).toFixed(2)}`,
+  );
+
+  // Mọi chữ phải cắm vào đế, không cái nào treo lơ lửng.
+  //
+  // Đo theo **đường chân chữ** chứ không theo đáy hộp bao: chữ `C` tròn thò
+  // xuống dưới đường chân một chút, còn `g` thì thòng hẳn — cả hai đều đúng.
+  // Trước đây chỗ này căn theo đáy thấp nhất của cả cụm, nên chữ nào có đáy cao
+  // hơn là treo lơ lửng; "Ag" từng làm chữ A treo cách đế 5.7 mm.
+  const letters = upright.pieces.filter((p) => p.role === 'text');
+  const baselineZ = base.plateThickness - DEFAULT_PARAMS.uprightSink;
+  const flatBottomed = letters.filter((p) => 'AB'.includes(p.token ?? ''));
+
+  check(flatBottomed.length === 2, 'tìm được chữ A và B để đo');
+  check(
+    flatBottomed.every((p) => Math.abs(p.geometry.boundingBox!.min.z - baselineZ) < TOLERANCE),
+    'chân chữ đáy phẳng nằm đúng cao độ đã lún',
+    `${flatBottomed.map((p) => p.geometry.boundingBox!.min.z.toFixed(2)).join(', ')} mm, mong đợi ${baselineZ}`,
+  );
+  check(
+    letters.every((p) => p.geometry.boundingBox!.min.z <= baselineZ + TOLERANCE),
+    'không chữ nào treo lơ lửng trên đế',
+  );
+
+  // Chữ có nét thòng: chữ không thòng vẫn phải cắm đúng chỗ, không bị kéo lên.
+  const withTail = buildModel(reference, { ...base, text: 'Ag', textAngle: 90 });
+  const plateTop = withTail.pieces.find((p) => p.role === 'plate')!.geometry.boundingBox!.max.z;
+  const a = withTail.pieces.find((p) => p.token === 'A')!;
+  check(
+    Math.abs(a.geometry.boundingBox!.min.z - (plateTop - DEFAULT_PARAMS.uprightSink)) < TOLERANCE,
+    'nét thòng của chữ bên cạnh không kéo chữ khác lên',
+    `A ở ${a.geometry.boundingBox!.min.z.toFixed(2)} mm, mặt đế ${plateTop.toFixed(2)} mm`,
+  );
+
+  // Nét chữ không được méo: dựng đứng chỉ là phép xoay.
+  check(
+    Math.abs(estimateMinStroke(upright.layout.shapes)! - estimateMinStroke(flat.layout.shapes)!) < 1e-9,
+    'dựng chữ không làm méo nét',
+  );
+
+  // Góc trung gian nằm giữa hai đầu — đủ để tin phép xoay chạy liên tục.
+  const tilted = buildModel(reference, { ...base, textAngle: 45 });
+  check(
+    tilted.size.z > flat.size.z + 1 && tilted.size.z < upright.size.z - 1,
+    'góc 45° cho chiều cao nằm giữa hai đầu',
+    `${flat.size.z.toFixed(1)} < ${tilted.size.z.toFixed(1)} < ${upright.size.z.toFixed(1)} mm`,
+  );
+
+  // Góc 0 phải giống hệt như khi chưa có tính năng này.
+  const zero = buildModel(reference, { ...base, textAngle: 0 });
+  check(
+    Math.abs(zero.size.x - flat.size.x) < 1e-9 &&
+      Math.abs(zero.size.y - flat.size.y) < 1e-9 &&
+      Math.abs(zero.size.z - flat.size.z) < 1e-9,
+    'góc 0 giữ nguyên hành vi cũ',
+  );
+
+  // Khắc chìm bỏ qua góc dựng, vì khắc hình chiếu thì không ra chữ.
+  const debossFlat = buildModel(reference, { ...base, mode: 'deboss' });
+  const debossTilted = buildModel(reference, { ...base, mode: 'deboss', textAngle: 90 });
+  check(
+    Math.abs(debossFlat.size.y - debossTilted.size.y) < 1e-9,
+    'chế độ khắc chìm bỏ qua góc dựng',
+  );
+
+  // Đế bo sát chữ cũng phải bám bóng đổ: nó ôm quanh vệt chân chữ.
+  const hugging = buildModel(reference, { ...base, plateShape: 'outline', textAngle: 90 });
+  check(checkMesh(mergePieces(hugging.pieces)).openEdges === 0, 'đế bo sát + chữ đứng vẫn kín lưới');
+  check(
+    hugging.size.y < base.textDepth + base.plateMargin * 2 + 2,
+    'đế bo sát ôm sát vệt chân chữ',
+    `sâu ${hugging.size.y.toFixed(1)} mm`,
+  );
+
+  // Cảnh báo: chữ cao mà mỏng thì gãy; dựng đứng mà không đế thì đổ.
+  const slim: ModelParams = { ...base, textDepth: 1 };
+  check(
+    validate(buildModel(reference, { ...slim, textAngle: 90 }), { ...slim, textAngle: 90 }, reference.font)
+      .some((i) => i.message.includes('mảnh như lưỡi dao')),
+    'cảnh báo chữ đứng quá mảnh',
+  );
+  const noPlate: ModelParams = { ...base, mode: 'text', textAngle: 90 };
+  check(
+    validate(buildModel(reference, noPlate), noPlate, reference.font).some((i) =>
+      i.message.includes('không có đế'),
+    ),
+    'cảnh báo chữ đứng mà không có đế',
+  );
+  check(
+    validate(buildModel(reference, { ...base, textAngle: 90 }), { ...base, textAngle: 90 }, reference.font)
+      .every((i) => !i.message.includes('mảnh như lưỡi dao')),
+    'chữ đủ dày thì không báo động thừa',
+  );
+
+  // Xếp theo hình và dựng đứng dùng được cùng lúc.
+  const both = buildModel(reference, { ...base, textShape: 'circle', shapeRadius: 30, textAngle: 90 });
+  check(checkMesh(mergePieces(both.pieces)).openEdges === 0, 'vừa vòng tròn vừa dựng đứng vẫn kín lưới');
+}
+
+// --- Xếp chữ theo hình ---
+{
+  const base: ModelParams = {
+    ...DEFAULT_PARAMS,
+    text: 'ABCDEFGH',
+    capHeight: CAP_HEIGHT,
+    mode: 'text',
+  };
+  const straight = buildModel(reference, base);
+
+  // Đường: mốc giữa phải rơi đúng đỉnh vòng tròn, và đi tới phải là sang phải.
+  {
+    const path = TextPath.create({ ...base, textShape: 'circle', shapeRadius: 40 }, 100)!;
+    const mid = path.frameAt(0);
+    check(
+      Math.abs(mid.point.x) < 1e-6 && Math.abs(mid.point.y - 40) < 1e-6,
+      'mốc giữa vòng tròn nằm đúng đỉnh',
+      `(${mid.point.x.toFixed(2)}, ${mid.point.y.toFixed(2)})`,
+    );
+    check(mid.tangent.x > 0.99, 'chữ chạy sang phải tại mốc giữa');
+    check(mid.normal.y > 0.99, 'đầu chữ hướng ra ngoài tâm');
+    check(
+      Math.abs(path.length - 2 * Math.PI * 40) < 0.5,
+      'chu vi vòng tròn đúng',
+      `${path.length.toFixed(1)} mm`,
+    );
+
+    const square = TextPath.create({ ...base, textShape: 'square', shapeRadius: 30 }, 100)!;
+    check(Math.abs(square.length - 8 * 30) < 0.5, 'chu vi ô vuông đúng', `${square.length.toFixed(1)} mm`);
+  }
+
+  for (const [shape, patch] of [
+    ['circle', { shapeRadius: 30 }],
+    ['square', { shapeRadius: 30 }],
+    ['wave', { waveAmplitude: 10, waveLength: 50 }],
+  ] as Array<[TextShape, Partial<ModelParams>]>) {
+    const params: ModelParams = { ...base, textShape: shape, ...patch };
+    const result = buildModel(reference, params);
+    const label = `[${shape}]`;
+
+    check(checkMesh(mergePieces(result.pieces)).openEdges === 0, `${label} lưới kín`);
+    check(
+      result.pieces.length === straight.pieces.length,
+      `${label} không mất nét nào khi uốn`,
+      `${result.pieces.length} / ${straight.pieces.length}`,
+    );
+
+    // Uốn phải làm khối chữ khác hẳn dạng thẳng, nếu không là chưa uốn gì cả.
+    check(
+      Math.abs(result.size.y - straight.size.y) > 2,
+      `${label} khối chữ đổi dáng so với dạng thẳng`,
+      `cao ${straight.size.y.toFixed(1)} → ${result.size.y.toFixed(1)} mm`,
+    );
+
+    // Đây là lời hứa cốt lõi của thiết kế: chữ được xoay và dời, **không** bị
+    // bóp méo. Nếu kéo từng điểm theo đường cong thì nét phía trong sẽ mỏng đi,
+    // và bề rộng nét mảnh nhất sẽ tụt xuống.
+    const strokeStraight = estimateMinStroke(straight.layout.shapes)!;
+    const strokeShaped = estimateMinStroke(result.layout.shapes)!;
+    check(
+      Math.abs(strokeShaped - strokeStraight) < 0.02,
+      `${label} nét chữ giữ nguyên bề rộng, không bị bóp méo`,
+      `${strokeStraight.toFixed(3)} → ${strokeShaped.toFixed(3)} mm`,
+    );
+  }
+
+  // Vòng tròn bán kính nhỏ thì chữ vòng kín; khối chữ phải rộng cỡ đường kính.
+  const ring = buildModel(reference, {
+    ...base,
+    text: 'ABCDEFGHIJKLMNOP',
+    textShape: 'circle',
+    shapeRadius: 25,
+  });
+  check(
+    Math.abs(ring.size.x - ring.size.y) < 8,
+    'chữ vòng kín thì khối chữ gần vuông',
+    `${ring.size.x.toFixed(1)} × ${ring.size.y.toFixed(1)} mm`,
+  );
+
+  // Lật hình đổi chiều cong: vòng trên thì hai chữ đầu cuối **thấp** hơn chữ
+  // giữa, vòng dưới thì ngược lại. So hộp bao thì không thấy gì, vì hai bên chỉ
+  // là ảnh gương của nhau nên cùng kích thước.
+  const normal = buildModel(reference, { ...base, textShape: 'circle', shapeRadius: 30 });
+  const flipped = buildModel(reference, { ...base, textShape: 'circle', shapeRadius: 30, shapeFlip: true });
+
+  const bow = (r: typeof normal) => {
+    const glyphs = r.pieces.filter((p) => p.token !== undefined);
+    const y = (p: (typeof glyphs)[number]) =>
+      p.geometry.boundingBox!.getCenter(new THREE.Vector3()).y;
+    return y(glyphs[0]) - y(glyphs[glyphs.length >> 1]);
+  };
+
+  check(checkMesh(mergePieces(flipped.pieces)).openEdges === 0, 'lật vòng tròn vẫn cho lưới kín');
+  check(
+    bow(normal) < -1 && bow(flipped) > 1,
+    'lật vòng tròn thì chiều cong đảo lại',
+    `${bow(normal).toFixed(1)} → ${bow(flipped).toFixed(1)} mm`,
+  );
+
+  // Biên độ sóng lớn hơn thì khối chữ cao hơn — đúng như trực giác.
+  const gentle = buildModel(reference, { ...base, textShape: 'wave', waveAmplitude: 3, waveLength: 60 });
+  const strong = buildModel(reference, { ...base, textShape: 'wave', waveAmplitude: 15, waveLength: 60 });
+  check(
+    strong.size.y > gentle.size.y + 10,
+    'biên độ sóng lớn hơn thì khối chữ cao hơn',
+    `${gentle.size.y.toFixed(1)} → ${strong.size.y.toFixed(1)} mm`,
+  );
+
+  // Chế độ thẳng phải giống hệt như khi chưa có tính năng này.
+  const explicitStraight = buildModel(reference, { ...base, textShape: 'straight', shapeRadius: 5 });
+  check(
+    Math.abs(explicitStraight.size.x - straight.size.x) < 1e-9 &&
+      Math.abs(explicitStraight.size.y - straight.size.y) < 1e-9,
+    'chọn "thẳng hàng" thì tham số hình không ảnh hưởng gì',
+  );
+
+  // Uốn xong mới áp dịch chuyển kéo tay: kéo trong khung xem là kéo trên hình đã
+  // uốn, nên đoạn dịch chuyển phải đi thẳng, không bị uốn theo.
+  const shaped = buildModel(reference, { ...base, textShape: 'circle', shapeRadius: 30 });
+  const first = shaped.pieces.find((p) => p.token !== undefined)!;
+  const moved = buildModel(reference, {
+    ...base,
+    textShape: 'circle',
+    shapeRadius: 30,
+    partOffsets: { [first.id]: { dx: 0, dy: 7, token: first.token! } },
+  });
+  const anchorId = shaped.pieces.filter((p) => p.token !== undefined).at(-1)!.id;
+  const gap = (r: typeof shaped, id: string) =>
+    r.pieces.find((p) => p.id === id)!.geometry.boundingBox!.min.y -
+    r.pieces.find((p) => p.id === anchorId)!.geometry.boundingBox!.min.y;
+  check(
+    Math.abs(gap(moved, first.id) - gap(shaped, first.id) - 7) < TOLERANCE,
+    'kéo tay trên chữ đã uốn dời đúng khoảng cách, không bị uốn theo',
+    `${gap(shaped, first.id).toFixed(2)} → ${gap(moved, first.id).toFixed(2)} mm`,
+  );
+
+  // Xếp theo hình phải chạy được ở mọi chế độ model, kể cả khắc chìm.
+  for (const mode of MODES) {
+    const params: ModelParams = { ...base, mode, textShape: 'circle', shapeRadius: 32 };
+    const result = buildModel(reference, params);
+    check(
+      checkMesh(mergePieces(result.pieces)).openEdges === 0,
+      `[${mode}] chữ vòng tròn cho lưới kín`,
+    );
+  }
 }
 
 // --- Hình chèn thêm ---

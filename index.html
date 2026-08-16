@@ -52,6 +52,44 @@
         </section>
 
         <section class="group">
+          <h2>Xếp theo hình</h2>
+          <label class="field">
+            <span>Hình dạng</span>
+            <select id="textShape">
+              <option value="straight">Thẳng hàng</option>
+              <option value="circle">Vòng tròn / vòng cung</option>
+              <option value="square">Ô vuông</option>
+              <option value="wave">Lượn sóng</option>
+            </select>
+          </label>
+
+          <label class="field" data-when="shape-radius">
+            <span id="shapeRadiusLabel">Bán kính <em>(mm)</em></span>
+            <input type="number" id="shapeRadius" step="5" min="3" max="300" />
+          </label>
+
+          <label class="field" data-when="shape-wave">
+            <span>Biên độ sóng <em>(mm)</em></span>
+            <input type="number" id="waveAmplitude" step="1" min="0" max="100" />
+          </label>
+
+          <label class="field" data-when="shape-wave">
+            <span>Bước sóng <em>(mm)</em></span>
+            <input type="number" id="waveLength" step="5" min="5" max="500" />
+          </label>
+
+          <label class="field field--inline" data-when="shape-any">
+            <span>Lật hình <em>(vòng dưới / đảo pha)</em></span>
+            <input type="checkbox" id="shapeFlip" />
+          </label>
+
+          <p class="hint" data-when="shape-any">
+            Bán kính nhỏ thì chữ vòng kín, bán kính lớn thì thành vòng cung thoải.
+            Nhiều dòng sẽ xếp thành các vòng đồng tâm.
+          </p>
+        </section>
+
+        <section class="group">
           <h2>Khối chữ</h2>
           <label class="field">
             <span>Cao chữ hoa <em>(mm)</em></span>
@@ -63,9 +101,26 @@
             <input type="number" id="textDepth" step="0.5" min="0.4" max="100" />
           </label>
 
+          <label class="field" data-when="tiltable">
+            <span>Dựng đứng <em>(độ)</em></span>
+            <input type="number" id="textAngle" step="15" min="0" max="90" />
+          </label>
+
+          <p class="hint" data-when="upright">
+            90° là chữ vuông góc với đế, kiểu biển tên để bàn. Đế tự bám theo bóng
+            đổ của chữ chứ không theo dáng chữ. Chữ dựng đứng có nhiều chỗ hẫng
+            (đỉnh chữ <em>O</em>, <em>e</em>…) nên phần mềm cắt lớp sẽ cần bật
+            support.
+          </p>
+
           <label class="field field--inline">
             <span>Vát cạnh</span>
             <input type="checkbox" id="bevelEnabled" />
+          </label>
+
+          <label class="field" data-when="upright">
+            <span>Chữ lún vào đế <em>(mm)</em></span>
+            <input type="number" id="uprightSink" step="0.25" min="0" max="10" />
           </label>
 
           <label class="field" data-when="bevel">
@@ -106,7 +161,7 @@
           </label>
 
           <label class="field field--inline" data-when="textmode">
-            <span>Thanh nối giữ dấu <em>(^ ~ ˘ và chữ rời)</em></span>
+            <span>Thanh nối giữ dấu <em>(^ ~ ˘ ˙)</em></span>
             <input type="checkbox" id="connectors" />
           </label>
 
