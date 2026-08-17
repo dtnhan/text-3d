@@ -12,7 +12,7 @@
 
 import * as THREE from 'three';
 
-export type Role = 'text' | 'plate';
+export type Role = 'text' | 'plate' | 'fill';
 export type State = 'solid' | 'hover' | 'selected';
 
 /** Ánh phát sáng cộng thêm cho từng trạng thái. */
@@ -31,10 +31,14 @@ export class Materials {
   private readonly cache = new Map<string, THREE.MeshStandardMaterial>();
   readonly handle: THREE.MeshStandardMaterial;
 
-  private colors: Record<Role, string> = { text: '#4da3ff', plate: '#c9d2dd' };
+  private colors: Record<Role, string> = {
+    text: '#4da3ff',
+    plate: '#c9d2dd',
+    fill: '#ff8a5c',
+  };
 
   constructor() {
-    for (const role of ['text', 'plate'] as Role[]) {
+    for (const role of ['text', 'plate', 'fill'] as Role[]) {
       for (const state of ['solid', 'hover', 'selected'] as State[]) {
         for (const ghost of [false, true]) {
           this.cache.set(key(role, state, ghost), create(state, ghost));
@@ -50,8 +54,8 @@ export class Materials {
   }
 
   /** Đổi màu chữ và màu đế. Các vật liệu được sửa tại chỗ nên mesh khỏi dựng lại. */
-  setColors(text: string, plate: string): void {
-    this.colors = { text, plate };
+  setColors(text: string, plate: string, fill: string): void {
+    this.colors = { text, plate, fill };
     this.applyColors();
   }
 

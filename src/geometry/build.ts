@@ -38,7 +38,11 @@ import type { GraphicStore } from '../graphics/graphicStore';
 import type { ModelParams } from '../state';
 
 /** Vai trò của một mảnh, quyết định nó được tô màu chữ hay màu đế. */
-export type PieceRole = 'text' | 'plate';
+/**
+ * `fill` là khối lấp chỗ khắc chìm — về hình học nó nằm trong lòng đế, nhưng về
+ * mục đích nó là một vật thể riêng để in bằng màu khác, nên phải tách vai trò.
+ */
+export type PieceRole = 'text' | 'plate' | 'fill';
 
 /** Một mảnh của model, dựng thành một mesh riêng trong khung xem. */
 export interface Piece {
@@ -132,6 +136,22 @@ export function buildModel(
     holeBlocked: assembly.holeBlocked === true,
     size: box.getSize(new THREE.Vector3()),
   };
+}
+
+/**
+ * Gộp các mảnh theo **vai trò**, mỗi vai trò một khối riêng.
+ *
+ * Dùng để xuất mỗi màu một file: phần mềm cắt lớp nạp nhiều file rồi gán vật
+ * liệu khác nhau cho từng file. Gộp hết vào một file thì mọi thứ thành một màu,
+ * và riêng với khắc chìm có lấp thì chữ biến mất hẳn — chỗ lõm bị lấp phẳng mà
+ * lại cùng màu với đế.
+ */
+export function mergeByRole(pieces: Piece[]): Array<{ role: PieceRole; geometry: THREE.BufferGeometry }> {
+  const roles: PieceRole[] = ['plate', 'text', 'fill'];
+  return roles.flatMap((role) => {
+    const group = pieces.filter((p) => p.role === role && !p.pickOnly);
+    return group.length > 0 ? [{ role, geometry: mergePieces(group) }] : [];
+  });
 }
 
 /** Gộp các mảnh thành một khối duy nhất để xuất file, bỏ qua khối bắt chuột. */
@@ -382,9 +402,20 @@ function debossedPlate(layout: TextLayout, params: ModelParams): Assembly {
     },
   ];
 
-  for (const piece of textPieces(layout, PICK_DEPTH, params, false)) {
-    piece.geometry.translate(0, 0, floor);
-    piece.pickOnly = true;
+  // Khối chữ ở chế độ khắc chìm phục vụ hai việc, tuỳ người dùng có bật lấp hay
+  // không — nhưng cả hai đều cần một khối nằm đúng chỗ lõm, nên dựng chung.
+  //
+  //  - **Không lấp**: khối mờ mỏng chỉ để tia dò trúng mà kéo thả, không xuất ra.
+  //  - **Có lấp**: khối đặc lấp kín chỗ lõm, mặt trên bằng đúng mặt đế nên sờ
+  //    vào phẳng lì. Đáy khối thò xuống dưới sàn khắc một chút để dính chắc,
+  //    còn mặt trên thì tuyệt đối không được vượt lên, nếu không lại lồi ra.
+  const fill = params.debossFill;
+  const height = fill ? depth + OVERLAP : PICK_DEPTH;
+
+  for (const piece of textPieces(layout, height, params, false)) {
+    piece.geometry.translate(0, 0, fill ? floor - OVERLAP : floor);
+    if (fill) piece.role = 'fill';
+    else piece.pickOnly = true;
     pieces.push(piece);
   }
 

@@ -135,6 +135,15 @@ export interface ModelParams {
 
   // --- Khắc chìm ---
   debossDepth: number;
+  /**
+   * Lấp đầy chỗ khắc bằng một khối riêng, để in hai màu.
+   *
+   * Chữ khắc chìm để trần thì mặt trên lồi lõm và chữ chỉ đọc được nhờ bóng đổ.
+   * Lấp lại cho phẳng lì rồi in phần lấp bằng màu khác thì chữ hiện rõ, mặt sờ
+   * vào mịn. Muốn in được như vậy phải xuất **file riêng cho từng màu** — nút
+   * "Tải STL từng phần" ở mục Xuất file.
+   */
+  debossFill: boolean;
 
   // --- Hình chèn thêm ---
   graphics: GraphicRef[];
@@ -152,6 +161,8 @@ export interface ModelParams {
    */
   textColor: string;
   plateColor: string;
+  /** Màu khối lấp chỗ khắc chìm. */
+  fillColor: string;
 
   // --- Chất lượng ---
   /** Số đoạn thẳng dùng để làm phẳng mỗi đường cong Bézier của glyph. */
@@ -195,6 +206,7 @@ export const DEFAULT_PARAMS: ModelParams = {
   holeMargin: 2.5,
 
   debossDepth: 1,
+  debossFill: false,
 
   graphics: [],
 
@@ -203,6 +215,7 @@ export const DEFAULT_PARAMS: ModelParams = {
 
   textColor: '#4da3ff',
   plateColor: '#c9d2dd',
+  fillColor: '#ff8a5c',
 
   curveSegments: 12,
 };

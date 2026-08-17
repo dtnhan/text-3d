@@ -92,6 +92,21 @@ export function validate(result: BuildResult, params: ModelParams, font: Font): 
     });
   }
 
+  if (params.mode === 'deboss' && params.debossFill) {
+    // Lớp màu mỏng hơn hai đường đùn thì in ra loang lổ, nhìn không ra chữ.
+    if (params.debossDepth < 0.4) {
+      issues.push({
+        level: 'warning',
+        message: `Chỗ khắc chỉ sâu ${fmt(params.debossDepth)} mm nên lớp màu lấp vào mỏng hơn hai lớp in, dễ loang lổ. Nên để từ 0.4 mm trở lên.`,
+      });
+    }
+
+    issues.push({
+      level: 'info',
+      message: 'Đã lấp chỗ khắc để mặt phẳng lì. Muốn in ra thấy chữ thì bấm "Tải STL từng phần" — mỗi màu một file, rồi gán vật liệu khác nhau trong phần mềm cắt lớp. Tải một file gộp thì chữ sẽ chìm mất vì cùng màu với đế.',
+    });
+  }
+
   if (params.mode === 'text' && params.connectors && params.connectorWidth < MIN_STROKE_MM) {
     issues.push({
       level: 'warning',

@@ -61,6 +61,8 @@ const BINDINGS: Binding[] = [
   { id: 'holeMargin', key: 'holeMargin', kind: 'number' },
 
   { id: 'debossDepth', key: 'debossDepth', kind: 'number' },
+  { id: 'debossFill', key: 'debossFill', kind: 'checkbox' },
+  { id: 'fillColor', key: 'fillColor', kind: 'text' },
   { id: 'curveSegments', key: 'curveSegments', kind: 'number' },
 ];
 
@@ -90,6 +92,7 @@ export function bindPanel(store: Store): void {
     toggle('[data-when="keyring"]', usesPlate);
     toggle('[data-when="hole"]', usesPlate && params.keyring);
     toggle('[data-when="deboss"]', params.mode === 'deboss');
+    toggle('[data-when="fill"]', params.mode === 'deboss' && params.debossFill);
     toggle('[data-when="rounded"]', usesPlate && params.plateShape === 'rounded');
     toggle('[data-when="bevel"]', params.bevelEnabled);
     // Thanh nối chỉ có nghĩa ở chế độ chữ nổi — các chế độ khác đã có đế giữ.

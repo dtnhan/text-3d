@@ -20,7 +20,7 @@ import { DOMParser } from '@xmldom/xmldom';
 import * as THREE from 'three';
 import { parse } from 'opentype.js';
 import { measureCapHeight } from '../src/fonts/metrics';
-import { buildModel, mergePieces } from '../src/geometry/build';
+import { buildModel, mergeByRole, mergePieces } from '../src/geometry/build';
 import { validate, countIslands } from '../src/validate';
 import { exportGeometry } from '../src/export/exporters';
 import {
@@ -563,6 +563,140 @@ console.log('\nKiểm phần chỉnh tay bằng kéo thả');
 
   check(of('triangle') > of('circle'), 'đế nới rộng ra cho lỗ tam giác', `${of('circle').toFixed(1)} → ${of('triangle').toFixed(1)} mm`);
   check(of('square') > of('circle'), 'đế nới rộng ra cho lỗ vuông');
+}
+
+// --- Lấp chỗ khắc chìm để in hai màu ---
+{
+  const base: ModelParams = {
+    ...DEFAULT_PARAMS,
+    text: SAMPLE,
+    capHeight: CAP_HEIGHT,
+    mode: 'deboss',
+    plateShape: 'rect',
+    plateThickness: 3,
+    debossDepth: 1,
+  };
+  const bare = buildModel(reference, base);
+  const filled = buildModel(reference, { ...base, debossFill: true });
+
+  // Khối lấp phải là vai trò riêng, để tô màu khác và xuất ra file riêng được.
+  const fillPieces = filled.pieces.filter((p) => p.role === 'fill');
+  check(fillPieces.length > 0, 'có khối lấp mang vai trò riêng', `${fillPieces.length} mảnh`);
+  check(
+    bare.pieces.filter((p) => p.role === 'fill').length === 0,
+    'không bật lấp thì không sinh khối lấp',
+  );
+
+  // Không bật lấp thì khối chữ chỉ để bắt chuột, không được lọt vào file xuất.
+  check(
+    bare.pieces.filter((p) => p.pickOnly).length > 0 &&
+      filled.pieces.every((p) => !p.pickOnly),
+    'bật lấp thì khối mờ bắt chuột thành khối đặc thật',
+  );
+
+  // Mặt trên khối lấp phải bằng đúng mặt đế — cao hơn thì lồi, thấp hơn thì vẫn lõm.
+  const plateTop = filled.pieces.find((p) => p.role === 'plate')!.geometry.boundingBox!.max.z;
+  const fillTop = Math.max(...fillPieces.map((p) => p.geometry.boundingBox!.max.z));
+  const fillBottom = Math.min(...fillPieces.map((p) => p.geometry.boundingBox!.min.z));
+  check(
+    Math.abs(fillTop - plateTop) < 1e-6,
+    'mặt trên khối lấp phẳng bằng mặt đế',
+    `lấp ${fillTop.toFixed(3)} mm, đế ${plateTop.toFixed(3)} mm`,
+  );
+  check(
+    fillBottom < plateTop - base.debossDepth + 1e-6,
+    'đáy khối lấp cắm xuống tới sàn chỗ khắc',
+    `${fillBottom.toFixed(2)} mm, sàn ở ${(plateTop - base.debossDepth).toFixed(2)} mm`,
+  );
+
+  // Lấp xong thì mặt trên liền một khối: bắn tia xuống giữa một nét chữ phải
+  // gặp vật liệu, chứ không rơi tọt vào chỗ lõm.
+  const merged = mergePieces(filled.pieces);
+  const probe = filled.layout.pieces[0];
+  const centre = new THREE.Box2().setFromPoints(probe.shape.getPoints(1)).getCenter(new THREE.Vector2());
+  const above = new THREE.Ray(
+    new THREE.Vector3(centre.x, centre.y, plateTop + 5),
+    new THREE.Vector3(0, 0, -1),
+  );
+  const hitAt = (geometry: THREE.BufferGeometry): number => {
+    const pos = geometry.getAttribute('position');
+    const a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+    const hit = new THREE.Vector3();
+    let highest = -Infinity;
+    for (let t = 0; t < pos.count / 3; t++) {
+      a.fromBufferAttribute(pos, t * 3);
+      b.fromBufferAttribute(pos, t * 3 + 1);
+      c.fromBufferAttribute(pos, t * 3 + 2);
+      if (above.intersectTriangle(a, b, c, false, hit)) highest = Math.max(highest, hit.z);
+    }
+    return highest;
+  };
+
+  check(
+    Math.abs(hitAt(merged) - plateTop) < 1e-6,
+    'ngay trên nét chữ, mặt model phẳng bằng mặt đế',
+    `${hitAt(merged).toFixed(3)} mm`,
+  );
+  check(
+    hitAt(mergePieces(bare.pieces)) < plateTop - base.debossDepth + 1e-6,
+    'không lấp thì chỗ đó vẫn lõm xuống',
+    `${hitAt(mergePieces(bare.pieces)).toFixed(3)} mm`,
+  );
+
+  check(checkMesh(merged).openEdges === 0, 'lưới có khối lấp vẫn kín');
+
+  // Lấp làm model đặc thêm đúng phần thể tích đã khắc đi.
+  const solid = buildModel(reference, { ...base, mode: 'plate', textDepth: 0.05 });
+  check(
+    volume(merged) > volume(mergePieces(bare.pieces)),
+    'lấp làm model đặc thêm',
+    `${volume(mergePieces(bare.pieces)).toFixed(0)} → ${volume(merged).toFixed(0)} mm³`,
+  );
+  void solid;
+
+  // Xuất từng phần: đúng hai file, và ghép lại đúng bằng bản gộp.
+  const parts = mergeByRole(filled.pieces);
+  check(
+    parts.length === 2 && parts.map((p) => p.role).join() === 'plate,fill',
+    'xuất từng phần cho ra đúng đế và khối lấp',
+    parts.map((p) => p.role).join(' + '),
+  );
+  const triangles = (g: THREE.BufferGeometry) => g.getAttribute('position').count / 3;
+  check(
+    parts.reduce((n, p) => n + triangles(p.geometry), 0) === triangles(merged),
+    'hai file rời cộng lại đúng bằng file gộp',
+  );
+
+  // Chế độ chữ nổi trên đế cũng tách được hai file, phục vụ in hai màu.
+  const raised = buildModel(reference, { ...base, mode: 'plate' });
+  const raisedParts = mergeByRole(raised.pieces);
+  check(
+    raisedParts.length === 2 && raisedParts.map((p) => p.role).join() === 'plate,text',
+    'chữ nổi trên đế cũng tách được đế và chữ',
+    raisedParts.map((p) => p.role).join(' + '),
+  );
+
+  // Cảnh báo khi lớp màu mỏng quá.
+  const thin: ModelParams = { ...base, debossFill: true, debossDepth: 0.2 };
+  check(
+    validate(buildModel(reference, thin), thin, reference.font).some((i) =>
+      i.message.includes('mỏng hơn hai lớp in'),
+    ),
+    'cảnh báo lớp màu quá mỏng',
+  );
+
+  // Ghép được với lỗ móc khóa và đế bo sát.
+  const combo = buildModel(reference, {
+    ...base,
+    debossFill: true,
+    keyring: true,
+    plateShape: 'outline',
+  });
+  check(checkMesh(mergePieces(combo.pieces)).openEdges === 0, 'lấp + lỗ treo + đế bo sát vẫn kín');
+  check(
+    countHits(mergePieces(combo.pieces), combo.holeCenter!.x, combo.holeCenter!.y) === 0,
+    'khối lấp không bịt mất lỗ móc khóa',
+  );
 }
 
 // --- Móc khóa chữ khắc chìm ---

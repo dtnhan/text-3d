@@ -32,6 +32,8 @@ npm run dev      # mở http://localhost:5173
 - **Chỉnh tay bằng kéo thả** ngay trong khung xem: dời từng nét chữ hoặc cả một
   cụm ký tự (dấu mũ, dấu ngã, chấm trên chữ `i` đều kéo riêng được), và dời lỗ
   móc khóa
+- **Lấp chỗ khắc chìm bằng màu khác** — mặt phẳng lì, chữ hiện rõ; xuất được mỗi
+  màu một file STL để in nhiều màu
 - **Xuất STL** (nhị phân, đơn vị milimét — nạp thẳng vào Cura / PrusaSlicer /
   Bambu Studio) và OBJ
 - **Cảnh báo trước khi in**: mảnh rời, nét quá mảnh, vượt khổ bàn in, khắc thủng
@@ -279,6 +281,32 @@ sợi chỉ. Tách ra rồi nối thì chỗ dính luôn dày đúng bằng bề
 Nếu lỗ bị kéo vào giữa vùng chữ, hình học vẫn đúng như yêu cầu nhưng chữ nổi bên
 trên bịt mất nó. Trường hợp này không tự sửa được nên ứng dụng **cảnh báo**.
 
+## Lấp chỗ khắc chìm để in hai màu
+
+Chữ khắc chìm để trần thì mặt trên lồi lõm và chữ chỉ đọc được nhờ bóng đổ. Bật ô
+**Lấp chỗ khắc** thì chỗ lõm được lấp bằng một khối riêng, mặt trên bằng đúng mặt
+đế nên sờ vào phẳng lì — rồi in khối đó bằng màu khác thì chữ hiện rõ.
+
+Khối lấp cao **đúng** tới mặt đế, không hơn một micromet: cao hơn thì lồi ra, thấp
+hơn thì vẫn lõm. Đáy nó thò xuống dưới sàn chỗ khắc một chút để dính chắc khi cắt
+lớp. Bộ kiểm đo cả hai đầu này.
+
+Cài đặt tận dụng luôn thứ đã có: ở chế độ khắc chìm vốn đã có một **khối mờ mỏng
+đặt đúng chỗ lõm** để tia dò trúng mà kéo thả (nét chữ khắc chìm là chỗ rỗng, không
+có gì để chạm). Bật lấp thì khối ấy chỉ việc dày lên thành khối đặc thật.
+
+### Muốn in ra thấy chữ thì phải xuất từng phần
+
+Nút **Tải STL từng phần** cho mỗi vai trò một file — `<tên>-de.stl`,
+`<tên>-chu-mau.stl`. Phần mềm cắt lớp nạp cả hai rồi gán vật liệu khác nhau cho
+từng file.
+
+Tải một file gộp thì chữ **chìm mất hẳn**: chỗ lõm đã bị lấp phẳng mà lại cùng
+màu với đế. Ứng dụng nhắc điều này ngay trên màn hình khi bật lấp.
+
+Nút đó dùng được cho cả chế độ chữ nổi trên đế (`-de` + `-chu`), phục vụ in hai
+màu nói chung chứ không riêng khắc chìm.
+
 ## Màu chữ và màu đế
 
 Hai ô chọn màu — "Màu chữ" trong nhóm *Khối chữ*, "Màu đế" trong nhóm *Đế*.
@@ -343,7 +371,7 @@ chọn một trong hai cách:
 
 ```bash
 npm run typecheck
-npm run check     # 544 phép kiểm, ghi STL mẫu ra .check-output/
+npm run check     # 559 phép kiểm, ghi STL mẫu ra .check-output/
 npm run build
 ```
 
@@ -356,6 +384,9 @@ năng:
   chữ T (xem `scripts/meshCheck.ts` giải thích vì sao phải phân biệt)
 - **đúng kích thước** — chữ cao đúng số mm đã đặt, độ dày khớp từng chế độ, đáy
   nằm đúng tại Z = 0
+- **lấp chỗ khắc chìm** — mặt trên khối lấp phẳng đúng bằng mặt đế, đáy cắm tới
+  sàn chỗ khắc, bắn tia thẳng xuống một nét chữ thì gặp mặt phẳng chứ không rơi
+  vào chỗ lõm, và hai file xuất rời cộng lại đúng bằng file gộp
 - **móc khóa chữ khắc chìm** — lỗ thủng suốt qua cả tấm đáy lẫn tấm mặt, kéo lỗ
   vào giữa vùng chữ vẫn thủng, ghép được với đế bo sát, và không báo nhầm cảnh
   báo "lỗ bị chữ che"

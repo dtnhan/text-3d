@@ -131,9 +131,9 @@ export class Viewer {
     this.scene.add(this.handle);
   }
 
-  /** Đổi màu chữ và màu đế. Không cần dựng lại hình học. */
-  setColors(text: string, plate: string): void {
-    this.materials.setColors(text, plate);
+  /** Đổi màu chữ, màu đế và màu khối lấp. Không cần dựng lại hình học. */
+  setColors(text: string, plate: string, fill: string): void {
+    this.materials.setColors(text, plate, fill);
   }
 
   /** Bỏ chọn tất cả. */
@@ -325,7 +325,7 @@ export class Viewer {
       const mesh = child as THREE.Mesh;
       const { id, role, pickOnly } = mesh.userData as {
         id: string;
-        role: 'text' | 'plate';
+        role: 'text' | 'plate' | 'fill';
         pickOnly: boolean;
       };
 

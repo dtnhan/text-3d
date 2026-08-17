@@ -248,6 +248,23 @@
             <span>Độ sâu khắc <em>(mm)</em></span>
             <input type="number" id="debossDepth" step="0.2" min="0.2" max="20" />
           </label>
+
+          <label class="field field--inline">
+            <span>Lấp chỗ khắc <em>(in hai màu)</em></span>
+            <input type="checkbox" id="debossFill" />
+          </label>
+
+          <label class="field" data-when="fill">
+            <span>Màu phần lấp <em>(chỉ để xem)</em></span>
+            <input type="color" id="fillColor" />
+          </label>
+
+          <p class="hint" data-when="fill">
+            Chỗ khắc được lấp phẳng lì bằng một khối riêng. Bấm <b>Tải STL từng
+            phần</b> để lấy mỗi màu một file, rồi gán vật liệu khác nhau cho từng
+            file trong phần mềm cắt lớp. Tải một file gộp thì chữ chìm mất vì cùng
+            màu với đế.
+          </p>
         </section>
 
         <section class="group">
@@ -289,6 +306,7 @@
           <div class="actions">
             <button type="button" id="exportStl" class="btn btn--primary">Tải STL</button>
             <button type="button" id="exportObj" class="btn">Tải OBJ</button>
+            <button type="button" id="exportParts" class="btn">Tải STL từng phần</button>
             <button type="button" id="frame" class="btn">Canh khung hình</button>
           </div>
         </section>

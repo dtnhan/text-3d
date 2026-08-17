@@ -7,7 +7,13 @@ import * as THREE from 'three';
 import { DEFAULT_PARAMS, Store, type ModelParams } from './state';
 import { FontManager } from './fonts/fontManager';
 import { GraphicStore } from './graphics/graphicStore';
-import { buildModel, mergePieces, EmptyTextError, type BuildResult } from './geometry/build';
+import {
+  buildModel,
+  mergeByRole,
+  mergePieces,
+  EmptyTextError,
+  type BuildResult,
+} from './geometry/build';
 import { validate, type Issue } from './validate';
 import { Viewer } from './viewer/scene';
 import { bindPanel, setFontOptions } from './ui/panel';
@@ -81,14 +87,18 @@ async function start(): Promise<void> {
 // ---------------------------------------------------------------------------
 
 /** Những tham số chỉ đổi cách hiển thị, không đụng tới hình học. */
-const DISPLAY_ONLY_KEYS: ReadonlyArray<keyof ModelParams> = ['textColor', 'plateColor'];
+const DISPLAY_ONLY_KEYS: ReadonlyArray<keyof ModelParams> = [
+  'textColor',
+  'plateColor',
+  'fillColor',
+];
 
 function scheduleRebuild(params: Readonly<ModelParams>): void {
   // Đổi màu thì chỉ cần sửa vật liệu. Dựng lại cả hình học sẽ tốn hàng chục
   // mili giây cho mỗi bước rê của bảng chọn màu, mà chẳng ra hình gì khác.
   if (lastBuilt && onlyDisplayChanged(lastBuilt, params)) {
     lastBuilt = params as ModelParams;
-    viewer.setColors(params.textColor, params.plateColor);
+    viewer.setColors(params.textColor, params.plateColor, params.fillColor);
     return;
   }
 
@@ -129,7 +139,7 @@ function rebuild(params: Readonly<ModelParams>): void {
     const result = buildModel(font, params as ModelParams, graphics);
     current = result;
     lastBuilt = params as ModelParams;
-    viewer.setColors(params.textColor, params.plateColor);
+    viewer.setColors(params.textColor, params.plateColor, params.fillColor);
     viewer.setPieces(result.pieces);
     viewer.setHoleHandle(result.holeCenter, result.size.z, params.holeDiameter);
 
@@ -285,6 +295,7 @@ function bindExportButtons(): void {
   };
 
   document.getElementById('exportStl')!.addEventListener('click', save('stl'));
+  document.getElementById('exportParts')!.addEventListener('click', saveParts);
   document.getElementById('exportObj')!.addEventListener('click', save('obj'));
   document.getElementById('frame')!.addEventListener('click', () => viewer.frameModel());
   document.getElementById('resetManual')!.addEventListener('click', () => {
@@ -333,9 +344,43 @@ function showSelection(count: number): void {
         : `Đang chọn ${count} nét — kéo một nét bất kỳ để dời cả cụm.`;
 }
 
+/**
+ * Xuất mỗi vai trò một file STL, để in nhiều màu.
+ *
+ * Phần mềm cắt lớp nạp nhiều file rồi gán vật liệu khác nhau cho từng file. Gộp
+ * hết vào một file thì mọi thứ thành một màu — và riêng với khắc chìm có lấp thì
+ * chữ biến mất hẳn, vì chỗ lõm đã bị lấp phẳng mà lại cùng màu với đế.
+ *
+ * Các lượt tải được giãn ra vài trăm mili giây: trình duyệt chặn bớt khi một
+ * trang bắn liên tiếp nhiều lượt tải trong cùng một khoảnh khắc.
+ */
+function saveParts(): void {
+  if (!current) return;
+
+  const labels: Record<string, string> = { plate: 'de', text: 'chu', fill: 'chu-mau' };
+  const slug = suggestFilename(store.get().text, 'stl').replace(/\.stl$/, '');
+  const parts = mergeByRole(current.pieces);
+
+  if (parts.length < 2) {
+    showIssues([
+      {
+        level: 'info',
+        message:
+          'Model này chỉ có một phần nên tải rời cũng như tải gộp. Xuất nhiều file chỉ có ích khi có đế kèm chữ nổi, hoặc khắc chìm có lấp màu.',
+      },
+    ]);
+  }
+
+  parts.forEach((part, index) => {
+    setTimeout(() => {
+      download(exportGeometry(part.geometry, 'stl'), `${slug}-${labels[part.role] ?? part.role}.stl`);
+    }, index * 400);
+  });
+}
+
 function updateExportButtons(): void {
   const disabled = current === null;
-  for (const id of ['exportStl', 'exportObj']) {
+  for (const id of ['exportStl', 'exportObj', 'exportParts']) {
     (document.getElementById(id) as HTMLButtonElement).disabled = disabled;
   }
   (document.getElementById('resetManual') as HTMLButtonElement).disabled =
